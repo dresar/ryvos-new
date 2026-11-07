@@ -25,16 +25,14 @@ use tracing::debug;
 use ryvos_core::error::{Result, RyvosError};
 use ryvos_core::types::{BillingType, CostEvent, CostSummary};
 
-/// SQLite store for cost events and run logs.
-/// Thread-safe via Mutex wrapping the connection.
 pub struct CostStore {
     conn: Mutex<Connection>,
 }
 
 impl CostStore {
-    /// Open (or create) the cost database.
     pub fn open(path: &Path) -> Result<Self> {
         let conn = Connection::open(path).map_err(|e| RyvosError::Database(e.to_string()))?;
+        crate::apply_lean_pragmas(&conn).map_err(|e| RyvosError::Database(e.to_string()))?;
 
         conn.execute_batch(
             "

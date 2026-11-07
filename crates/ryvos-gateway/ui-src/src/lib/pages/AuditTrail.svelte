@@ -2,10 +2,10 @@
   import { onMount } from 'svelte';
   import { apiFetch } from '../api.js';
 
-  let entries = [];
-  let loading = true;
-  let error = '';
-  let filterTool = '';
+  let entries = $state([]);
+  let loading = $state(true);
+  let error = $state('');
+  let filterTool = $state('');
 
   async function loadAudit() {
     loading = true;
@@ -42,86 +42,85 @@
 </script>
 
 <div>
-  <div class="mb-7">
-    <h2 class="text-2xl font-heading font-bold tracking-tight text-[#1A1A1A]">Audit Trail</h2>
-    <p class="text-[#9B9590] text-sm mt-1">Tool execution audit log</p>
+  <div class="mb-6">
+    <h2 class="text-2xl font-heading font-bold tracking-tight text-[#1B2943]">Audit Trail</h2>
+    <p class="text-[#778399] text-sm mt-1">Immutable security log of tool executions and system events</p>
   </div>
 
-  <!-- Filter bar -->
-  <div class="flex items-center gap-3 mb-6 p-4 bg-white border-2 border-[#1A1A1A]">
-    <label class="flex items-center gap-2 text-xs text-[#6B6560] font-medium">
-      Filter by tool
+  <div class="card-soft p-4 mb-6 flex items-center gap-3 flex-wrap">
+    <label class="flex items-center gap-2 text-xs text-[#64748B] font-medium">
+      Filter by tool:
       <input
         type="text"
         bind:value={filterTool}
         placeholder="e.g. bash, read_file"
-        class="px-2.5 py-1.5 bg-white border-2 border-[#1A1A1A] text-[#1A1A1A] text-xs outline-none w-48
-               focus:border-[#F07030] focus:ring-2 focus:ring-[#F07030]/20 transition-all duration-200
-               placeholder:text-[#9B9590]"
+        class="input-soft px-3 py-1.5 text-xs text-[#1B2943] w-48 font-mono"
       />
     </label>
-    <button on:click={handleFilter}
-      class="px-4 py-1.5 bg-[#F07030] text-white border-2 border-[#1A1A1A]
-             text-xs font-semibold transition-all duration-200 shadow-brutal-sm brutal-shift">
+    <button
+      type="button"
+      onclick={handleFilter}
+      class="btn-primary px-4 py-1.5 text-xs font-semibold"
+    >
       Apply
     </button>
     {#if filterTool}
-      <button on:click={() => { filterTool = ''; loadAudit(); }}
-        class="px-3 py-1.5 bg-white border-2 border-[#1A1A1A] text-[#6B6560] text-xs hover:text-[#1A1A1A] hover:bg-[#F7F4F0] transition-colors">
+      <button
+        type="button"
+        onclick={() => { filterTool = ''; loadAudit(); }}
+        class="btn-surface px-3 py-1.5 text-xs font-semibold text-[#778399]"
+      >
         Clear
       </button>
     {/if}
   </div>
 
   {#if loading}
-    <div class="bg-white border-2 border-[#1A1A1A] p-8 text-center">
-      <p class="text-[#9B9590] text-sm animate-pulse">Loading audit entries...</p>
+    <div class="card-soft p-8 text-center">
+      <p class="text-[#778399] text-sm animate-pulse">Loading audit entries...</p>
     </div>
   {:else if error}
-    <div class="bg-white border-2 border-[#1A1A1A] p-12 text-center">
-      <p class="text-[#9B9590] text-sm">Audit trail not available</p>
+    <div class="card-soft p-12 text-center">
+      <p class="text-[#778399] text-sm">Audit trail not available: {error}</p>
     </div>
   {:else if entries.length === 0}
-    <div class="bg-white border-2 border-[#1A1A1A] p-12 text-center">
-      <p class="text-[#9B9590] text-sm">No audit entries found</p>
+    <div class="card-soft p-12 text-center">
+      <div class="w-12 h-12 rounded-2xl bg-[#E8EEFF] text-[#2448CB] flex items-center justify-center mx-auto mb-3">
+        <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      </div>
+      <h3 class="text-base font-semibold text-[#1B2943] mb-1">No audit entries found</h3>
+      <p class="text-xs text-[#778399] max-w-sm mx-auto">Tool execution entries and sandbox calls will be recorded here.</p>
     </div>
   {:else}
-    <div class="border-2 border-[#1A1A1A] overflow-x-auto">
-      <table class="w-full text-sm">
-        <thead>
-          <tr>
-            <th class="px-4 py-3 bg-[#F7F4F0] text-left text-xs uppercase tracking-wider font-bold text-[#9B9590] border-b-2 border-[#1A1A1A]">Time</th>
-            <th class="px-4 py-3 bg-[#F7F4F0] text-left text-xs uppercase tracking-wider font-bold text-[#9B9590] border-b-2 border-[#1A1A1A]">Tool</th>
-            <th class="px-4 py-3 bg-[#F7F4F0] text-left text-xs uppercase tracking-wider font-bold text-[#9B9590] border-b-2 border-[#1A1A1A]">Input</th>
-            <th class="px-4 py-3 bg-[#F7F4F0] text-left text-xs uppercase tracking-wider font-bold text-[#9B9590] border-b-2 border-[#1A1A1A]">Outcome</th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each entries as entry}
-            <tr class="hover:bg-[#F7F4F0] transition-colors duration-150">
-              <td class="px-4 py-3 border-b border-[#E8E4E0] font-mono text-xs text-[#9B9590]">
-                {formatTime(entry.timestamp || entry.time)}
-              </td>
-              <td class="px-4 py-3 border-b border-[#E8E4E0]">
-                <span class="inline-flex px-2.5 py-0.5 text-[0.7rem] font-semibold bg-[#FEF3EC] text-[#F07030] border border-[#F07030]">
-                  {entry.tool || entry.tool_name || '-'}
-                </span>
-              </td>
-              <td class="px-4 py-3 border-b border-[#E8E4E0] text-[#6B6560] font-mono text-xs max-w-[300px] truncate">
-                {truncate(entry.input || entry.input_summary || '', 80)}
-              </td>
-              <td class="px-4 py-3 border-b border-[#E8E4E0]">
-                <span class="font-medium
-                  {entry.outcome === 'success' || entry.outcome === 'ok' ? 'text-[#16A34A]' :
-                   entry.outcome === 'error' || entry.outcome === 'blocked' ? 'text-[#DC2626]' :
-                   'text-[#9B9590]'}">
-                  {entry.outcome || entry.status || '-'}
-                </span>
-              </td>
+    <div class="card-soft overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="bg-[#F8FAFF] border-b border-[#DCE4F3]">
+              <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-[#778399]">Time</th>
+              <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-[#778399]">Tool</th>
+              <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-[#778399]">Input</th>
+              <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-[#778399]">Outcome</th>
             </tr>
-          {/each}
-        </tbody>
-      </table>
+          </thead>
+          <tbody class="divide-y divide-[#DCE4F3]">
+            {#each entries as entry}
+              <tr class="hover:bg-[#F8FAFF] transition-colors duration-150">
+                <td class="px-4 py-3 font-mono text-xs text-[#778399] tabular-nums">{formatTime(entry.timestamp || entry.time)}</td>
+                <td class="px-4 py-3 font-mono text-xs font-semibold text-[#2448CB]">{entry.tool || entry.tool_name || '-'}</td>
+                <td class="px-4 py-3 font-mono text-xs text-[#64748B] max-w-md truncate" title={typeof entry.input === 'object' ? JSON.stringify(entry.input) : (entry.input || '')}>
+                  {truncate(entry.input, 60)}
+                </td>
+                <td class="px-4 py-3">
+                  <span class="font-semibold text-xs {entry.error || entry.status === 'failed' || entry.outcome === 'error' ? 'text-[#D94B5B]' : 'text-[#219B70]'}">
+                    {entry.error ? 'Error' : (entry.status || entry.outcome || 'ok')}
+                  </span>
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
     </div>
   {/if}
 </div>

@@ -11,15 +11,12 @@ use ryvos_core::types::{ChatMessage, SearchResult, SessionId};
 
 use crate::embeddings::cosine_similarity;
 
-/// SQLite-backed session store with FTS5 full-text search.
 pub struct SqliteStore {
     conn: Mutex<Connection>,
 }
 
 impl SqliteStore {
-    /// Open or create a SQLite database at the given path.
     pub fn open(path: &Path) -> Result<Self> {
-        // Create parent directories
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
                 RyvosError::Database(format!("Failed to create db directory: {}", e))
@@ -27,12 +24,8 @@ impl SqliteStore {
         }
 
         let conn = Connection::open(path).map_err(|e| RyvosError::Database(e.to_string()))?;
+        crate::apply_lean_pragmas(&conn).map_err(|e| RyvosError::Database(e.to_string()))?;
 
-        // Enable WAL mode for better concurrent performance
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")
-            .map_err(|e| RyvosError::Database(e.to_string()))?;
-
-        // Create tables
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -75,9 +68,9 @@ impl SqliteStore {
         })
     }
 
-    /// Open an in-memory database (for testing).
     pub fn in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory().map_err(|e| RyvosError::Database(e.to_string()))?;
+        crate::apply_lean_pragmas(&conn).map_err(|e| RyvosError::Database(e.to_string()))?;
 
         conn.execute_batch(
             "CREATE TABLE messages (
@@ -170,8 +163,10 @@ impl SqliteStore {
                 row.map_err(|e| RyvosError::Database(e.to_string()))?;
 
             let embedding: Vec<f32> = blob
-                .chunks_exact(4)
-                .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|chunk| f32::from_le_bytes(*chunk))
                 .collect();
 
             let sim = cosine_similarity(query_vec, &embedding);
@@ -377,5 +372,19 @@ mod tests {
 
         let results = store.search("logging", 10).await.unwrap();
         assert!(!results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_lean_pragmas_applied() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+        let store = SqliteStore::open(&db_path).unwrap();
+        let conn = store.conn.lock().unwrap();
+        let cache_size: i64 = conn.query_row("PRAGMA cache_size", [], |r| r.get(0)).unwrap();
+        let mmap_size: i64 = conn.query_row("PRAGMA mmap_size", [], |r| r.get(0)).unwrap();
+        let temp_store: i64 = conn.query_row("PRAGMA temp_store", [], |r| r.get(0)).unwrap();
+        assert_eq!(cache_size, -2000);
+        assert_eq!(mmap_size, 0);
+        assert_eq!(temp_store, 2);
     }
 }

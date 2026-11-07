@@ -18,8 +18,6 @@ fn resolve(p: &str, wd: &std::path::Path) -> PathBuf {
     }
 }
 
-// ── HttpRequestTool ─────────────────────────────────────────────
-
 pub struct HttpRequestTool;
 
 #[derive(Deserialize)]
@@ -69,8 +67,14 @@ impl Tool for HttpRequestTool {
         Box::pin(async move {
             let p: HttpRequestInput = serde_json::from_value(input)
                 .map_err(|e| RyvosError::ToolValidation(e.to_string()))?;
+
+            if let Err(e) = crate::egress::validate_url_for_egress(&p.url).await {
+                return Ok(ToolResult::error(format!("Blocked by egress policy: {}", e)));
+            }
+
             let client = reqwest::Client::builder()
                 .timeout(Duration::from_secs(30))
+                .redirect(reqwest::redirect::Policy::none())
                 .build()
                 .map_err(|e| RyvosError::ToolExecution {
                     tool: "http_request".into(),
@@ -109,18 +113,22 @@ impl Tool for HttpRequestTool {
                 &body
             };
 
-            Ok(ToolResult::success(format!(
+            let payload = format!(
                 "HTTP {} {}\n\n{}\n\n{}",
                 status.as_u16(),
                 status.canonical_reason().unwrap_or(""),
                 headers,
                 truncated
-            )))
+            );
+
+            Ok(ToolResult {
+                content: ryvos_core::types::wrap_untrusted_content(&payload),
+                is_error: false,
+                trust: ryvos_core::types::TrustLevel::Untrusted,
+            })
         })
     }
 }
-
-// ── HttpDownloadTool ────────────────────────────────────────────
 
 pub struct HttpDownloadTool;
 
@@ -161,8 +169,21 @@ impl Tool for HttpDownloadTool {
         Box::pin(async move {
             let p: HttpDownloadInput = serde_json::from_value(input)
                 .map_err(|e| RyvosError::ToolValidation(e.to_string()))?;
+
+            if let Err(e) = crate::egress::validate_url_for_egress(&p.url).await {
+                return Ok(ToolResult::error(format!("Blocked by egress policy: {}", e)));
+            }
             let out = resolve(&p.output, &ctx.working_dir);
-            let resp = reqwest::get(&p.url)
+            let client = reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .map_err(|e| RyvosError::ToolExecution {
+                    tool: "http_download".into(),
+                    message: e.to_string(),
+                })?;
+            let resp = client
+                .get(&p.url)
+                .send()
                 .await
                 .map_err(|e| RyvosError::ToolExecution {
                     tool: "http_download".into(),
@@ -171,14 +192,19 @@ impl Tool for HttpDownloadTool {
             if !resp.status().is_success() {
                 return Ok(ToolResult::error(format!("HTTP {}", resp.status())));
             }
-            let bytes = resp.bytes().await.map_err(|e| RyvosError::ToolExecution {
-                tool: "http_download".into(),
-                message: e.to_string(),
-            })?;
             if let Some(parent) = out.parent() {
                 tokio::fs::create_dir_all(parent).await.ok();
             }
-            tokio::fs::write(&out, &bytes)
+            let mut file = tokio::fs::File::create(&out)
+                .await
+                .map_err(|e| RyvosError::ToolExecution {
+                    tool: "http_download".into(),
+                    message: e.to_string(),
+                })?;
+            let stream = futures::TryStreamExt::map_err(resp.bytes_stream(), std::io::Error::other);
+            let stream_reader = tokio_util::io::StreamReader::new(stream);
+            let mut buf_reader = tokio::io::BufReader::with_capacity(65536, stream_reader);
+            let bytes_copied = tokio::io::copy(&mut buf_reader, &mut file)
                 .await
                 .map_err(|e| RyvosError::ToolExecution {
                     tool: "http_download".into(),
@@ -186,14 +212,12 @@ impl Tool for HttpDownloadTool {
                 })?;
             Ok(ToolResult::success(format!(
                 "Downloaded {} bytes to {}",
-                bytes.len(),
+                bytes_copied,
                 out.display()
             )))
         })
     }
 }
-
-// ── DnsLookupTool ───────────────────────────────────────────────
 
 pub struct DnsLookupTool;
 
@@ -243,8 +267,6 @@ impl Tool for DnsLookupTool {
         })
     }
 }
-
-// ── NetworkCheckTool ────────────────────────────────────────────
 
 pub struct NetworkCheckTool;
 

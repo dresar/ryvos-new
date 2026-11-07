@@ -2,30 +2,28 @@
   import { onMount } from 'svelte';
   import { apiFetch } from '../api.js';
 
-  let healthData = null;
-  let metricsData = null;
-  let loading = true;
+  let healthData = $state(null);
+  let metricsData = $state(null);
+  let loading = $state(true);
 
-  // Budget editing
-  let budgetData = null;
-  let budgetLoading = false;
-  let budgetEditing = false;
-  let editBudgetDollars = '';
-  let editWarnPct = '';
-  let budgetSaving = false;
-  let budgetMessage = '';
+  let budgetData = $state(null);
+  let budgetLoading = $state(false);
+  let budgetEditing = $state(false);
+  let editBudgetDollars = $state('');
+  let editWarnPct = $state('');
+  let budgetSaving = $state(false);
+  let budgetMessage = $state('');
 
-  // Model editing
-  let modelData = null;
-  let availableModels = [];
-  let modelLoading = false;
-  let modelEditing = false;
-  let editModelId = '';
-  let editTemperature = 0.7;
-  let editMaxTokens = 4096;
-  let editThinking = 'off';
-  let modelSaving = false;
-  let modelMessage = '';
+  let modelData = $state(null);
+  let availableModels = $state([]);
+  let modelLoading = $state(false);
+  let modelEditing = $state(false);
+  let editModelId = $state('');
+  let editTemperature = $state(0.7);
+  let editMaxTokens = $state(4096);
+  let editThinking = $state('off');
+  let modelSaving = $state(false);
+  let modelMessage = $state('');
 
   onMount(async () => {
     try {
@@ -38,7 +36,6 @@
     } finally {
       loading = false;
     }
-    // Load budget and model in parallel
     loadBudget();
     loadModel();
   });
@@ -121,84 +118,82 @@
     }
   }
 
-  $: budgetPct = metricsData && metricsData.monthly_budget_cents > 0
-    ? Math.min(metricsData.budget_utilization_pct, 100) : 0;
-  $: budgetColor = budgetPct > 90 ? 'text-[#DC2626]' : budgetPct > 70 ? 'text-amber-500' : 'text-[#F07030]';
-  $: barColor = budgetPct > 90 ? 'bg-[#DC2626]' : budgetPct > 70 ? 'bg-amber-500' : 'bg-[#F07030]';
+  let budgetPct = $derived(metricsData && metricsData.monthly_budget_cents > 0
+    ? Math.min(metricsData.budget_utilization_pct, 100) : 0);
+  let budgetColor = $derived(budgetPct > 90 ? 'text-[#D94B5B]' : budgetPct > 70 ? 'text-[#C58A2A]' : 'text-[#2448CB]');
+  let barColor = $derived(budgetPct > 90 ? 'bg-[#D94B5B]' : budgetPct > 70 ? 'bg-[#C58A2A]' : 'bg-[#2448CB]');
 </script>
 
 <div>
-  <div class="mb-7">
-    <h2 class="text-2xl font-heading font-bold tracking-tight text-[#1A1A1A]">Settings</h2>
-    <p class="text-[#9B9590] text-sm mt-1">System info, budget, and model configuration</p>
+  <div class="mb-6">
+    <h2 class="text-2xl font-heading font-bold tracking-tight text-[#1B2943]">Settings</h2>
+    <p class="text-[#778399] text-sm mt-1">System runtime info, budget limits, and active model configuration</p>
   </div>
 
   {#if loading}
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       {#each Array(2) as _}
-        <div class="bg-white border-2 border-[#1A1A1A] p-6 min-h-[160px] animate-pulse"></div>
+        <div class="card-soft p-6 min-h-[160px] animate-pulse"></div>
       {/each}
     </div>
   {:else}
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-      <!-- System card -->
-      <div class="bg-white border-2 border-[#1A1A1A] p-6">
-        <h3 class="label text-xs uppercase tracking-wider font-bold text-[#9B9590] mb-5">System</h3>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="card-soft p-6">
+        <h3 class="label mb-4 text-[#1B2943]">System Overview</h3>
         {#if healthData}
           <div class="space-y-4">
-            <div>
-              <span class="label text-xs uppercase tracking-wider font-bold text-[#9B9590]">Version</span>
-              <p class="text-lg font-bold text-[#1A1A1A] mt-1">{healthData.version || 'unknown'}</p>
+            <div class="p-3 bg-[#F8FAFF] rounded-xl border border-[#DCE4F3]">
+              <span class="label text-[10px]">Version</span>
+              <p class="text-base font-bold text-[#1B2943] mt-0.5">{healthData.version || 'unknown'}</p>
             </div>
-            <div>
-              <span class="label text-xs uppercase tracking-wider font-bold text-[#9B9590]">Status</span>
-              <p class="text-lg font-bold text-[#16A34A] mt-1">{healthData.status || 'unknown'}</p>
+            <div class="p-3 bg-[#F8FAFF] rounded-xl border border-[#DCE4F3]">
+              <span class="label text-[10px]">Status</span>
+              <p class="text-base font-bold text-[#219B70] uppercase mt-0.5">{healthData.status || 'unknown'}</p>
             </div>
           </div>
         {:else}
-          <p class="text-[#9B9590] text-sm">Failed to load system info</p>
+          <p class="text-[#778399] text-sm">Failed to load system info</p>
         {/if}
       </div>
 
-      <!-- Budget display card (from metrics) -->
-      <div class="bg-white border-2 border-[#1A1A1A] p-6">
-        <h3 class="label text-xs uppercase tracking-wider font-bold text-[#9B9590] mb-5">Budget Usage</h3>
+      <div class="card-soft p-6">
+        <h3 class="label mb-4 text-[#1B2943]">Budget Usage</h3>
         {#if metricsData && metricsData.monthly_budget_cents > 0}
           <div class="space-y-4">
-            <div>
-              <span class="label text-xs uppercase tracking-wider font-bold text-[#9B9590]">Monthly Budget</span>
-              <p class="text-lg font-bold text-[#1A1A1A] mt-1">${(metricsData.monthly_budget_cents / 100).toFixed(2)}</p>
+            <div class="grid grid-cols-3 gap-2">
+              <div class="p-3 bg-[#F8FAFF] rounded-xl border border-[#DCE4F3]">
+                <span class="label text-[10px]">Monthly</span>
+                <p class="text-base font-bold text-[#1B2943] tabular-nums mt-0.5">${(metricsData.monthly_budget_cents / 100).toFixed(2)}</p>
+              </div>
+              <div class="p-3 bg-[#F8FAFF] rounded-xl border border-[#DCE4F3]">
+                <span class="label text-[10px]">Spent</span>
+                <p class="text-base font-bold text-[#1B2943] tabular-nums mt-0.5">${(metricsData.total_cost_cents / 100).toFixed(2)}</p>
+              </div>
+              <div class="p-3 bg-[#F8FAFF] rounded-xl border border-[#DCE4F3]">
+                <span class="label text-[10px]">Utilized</span>
+                <p class="text-base font-bold {budgetColor} tabular-nums mt-0.5">{metricsData.budget_utilization_pct}%</p>
+              </div>
             </div>
-            <div>
-              <span class="label text-xs uppercase tracking-wider font-bold text-[#9B9590]">Spent</span>
-              <p class="text-lg font-bold text-[#1A1A1A] mt-1">${(metricsData.total_cost_cents / 100).toFixed(2)}</p>
-            </div>
-            <div>
-              <span class="label text-xs uppercase tracking-wider font-bold text-[#9B9590]">Utilization</span>
-              <p class="text-lg font-bold {budgetColor} mt-1">{metricsData.budget_utilization_pct}%</p>
-            </div>
-            <!-- Progress bar -->
-            <div class="h-2 bg-[#F7F4F0] border border-[#1A1A1A] overflow-hidden">
-              <div class="{barColor} h-full transition-all duration-500" style="width: {budgetPct}%"></div>
+            <div class="h-2.5 bg-[#EAF0FC] rounded-full overflow-hidden">
+              <div class="{barColor} h-full rounded-full transition-all duration-500" style="width: {budgetPct}%"></div>
             </div>
           </div>
         {:else}
-          <p class="text-[#9B9590] text-sm py-4">
-            No budget configured. Add <code class="font-mono bg-[#F7F4F0] border border-[#E8E4E0] px-1.5 py-0.5 text-xs">[budget]</code> to your config.toml.
+          <p class="text-[#778399] text-sm py-4">
+            No budget configured. Add <code class="font-mono bg-[#E8EEFF] text-[#2448CB] px-1.5 py-0.5 rounded text-xs">[budget]</code> to your config.toml.
           </p>
         {/if}
       </div>
     </div>
 
-    <!-- Budget Configuration Section -->
-    <div class="mt-5 bg-white border-2 border-[#1A1A1A] p-6">
-      <div class="flex items-center justify-between mb-5">
-        <h3 class="label text-xs uppercase tracking-wider font-bold text-[#9B9590]">Budget Configuration</h3>
+    <div class="mt-4 card-soft p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="label text-[#1B2943]">Budget Configuration</h3>
         {#if !budgetEditing}
           <button
-            on:click={() => budgetEditing = true}
-            class="px-3 py-1.5 bg-white text-[#6B6560] border-2 border-[#1A1A1A] text-xs font-bold uppercase tracking-wider
-                   shadow-brutal-sm brutal-shift hover:text-[#1A1A1A] transition-all duration-100"
+            type="button"
+            onclick={() => budgetEditing = true}
+            class="btn-surface text-xs font-semibold px-3 py-1.5 hover:border-[#2448CB]"
           >
             Edit
           </button>
@@ -206,85 +201,83 @@
       </div>
 
       {#if budgetLoading}
-        <p class="text-[#9B9590] text-sm animate-pulse">Loading budget...</p>
+        <p class="text-[#778399] text-sm animate-pulse">Loading budget...</p>
       {:else if budgetEditing}
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <span class="label text-xs uppercase tracking-wider font-bold text-[#9B9590] block mb-1">Monthly Budget ($)</span>
+            <label for="monthly-budget-input" class="label block mb-1">Monthly Budget ($)</label>
             <input
+              id="monthly-budget-input"
               bind:value={editBudgetDollars}
               type="number"
               step="0.01"
               min="0"
               placeholder="10.00"
-              class="w-full px-3 py-2 bg-white border-2 border-[#1A1A1A] text-sm text-[#1A1A1A] font-mono
-                     outline-none focus:border-[#F07030] transition-colors"
+              class="input-soft w-full px-3 py-2 text-sm font-mono"
             />
           </div>
           <div>
-            <span class="label text-xs uppercase tracking-wider font-bold text-[#9B9590] block mb-1">Warn at (%)</span>
+            <label for="warn-pct-input" class="label block mb-1">Warn at (%)</label>
             <input
+              id="warn-pct-input"
               bind:value={editWarnPct}
               type="number"
               min="0"
               max="100"
               placeholder="80"
-              class="w-full px-3 py-2 bg-white border-2 border-[#1A1A1A] text-sm text-[#1A1A1A] font-mono
-                     outline-none focus:border-[#F07030] transition-colors"
+              class="input-soft w-full px-3 py-2 text-sm font-mono"
             />
           </div>
         </div>
         <div class="flex items-center gap-3 mt-4">
           <button
-            on:click={saveBudget}
+            type="button"
+            onclick={saveBudget}
             disabled={budgetSaving}
-            class="px-5 py-2 bg-[#F07030] text-white border-2 border-[#1A1A1A] shadow-brutal-sm brutal-shift
-                   uppercase font-bold tracking-wider text-xs transition-all duration-100
-                   disabled:opacity-40 disabled:cursor-not-allowed"
+            class="btn-primary px-5 py-2 text-xs font-semibold disabled:opacity-40"
           >
             {budgetSaving ? 'Saving...' : 'Save Budget'}
           </button>
           <button
-            on:click={() => budgetEditing = false}
-            class="px-5 py-2 bg-white text-[#6B6560] border-2 border-[#1A1A1A] shadow-brutal-sm brutal-shift
-                   uppercase font-bold tracking-wider text-xs transition-all duration-100 hover:text-[#1A1A1A]"
+            type="button"
+            onclick={() => budgetEditing = false}
+            class="btn-surface px-4 py-2 text-xs font-semibold text-[#778399]"
           >
             Cancel
           </button>
         </div>
       {:else if budgetData}
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <span class="label text-xs uppercase tracking-wider font-bold text-[#9B9590]">Monthly Budget</span>
-            <p class="text-lg font-bold text-[#1A1A1A] mt-1">
-              {budgetData.monthly_budget_cents ? '$' + (budgetData.monthly_budget_cents / 100).toFixed(2) : 'Not set'}
+          <div class="p-3 bg-[#F8FAFF] rounded-xl border border-[#DCE4F3]">
+            <span class="label text-[10px]">Monthly Budget Limit</span>
+            <p class="text-base font-bold text-[#1B2943] tabular-nums mt-0.5">
+              {budgetData.monthly_budget_cents ? '$' + (budgetData.monthly_budget_cents / 100).toFixed(2) : 'Not configured'}
             </p>
           </div>
-          <div>
-            <span class="label text-xs uppercase tracking-wider font-bold text-[#9B9590]">Warn Threshold</span>
-            <p class="text-lg font-bold text-[#1A1A1A] mt-1">{budgetData.warn_pct != null ? budgetData.warn_pct + '%' : '80%'}</p>
+          <div class="p-3 bg-[#F8FAFF] rounded-xl border border-[#DCE4F3]">
+            <span class="label text-[10px]">Warning Alert Threshold</span>
+            <p class="text-base font-bold text-[#1B2943] tabular-nums mt-0.5">{budgetData.warn_pct != null ? budgetData.warn_pct + '%' : '80%'}</p>
           </div>
         </div>
       {:else}
-        <p class="text-[#9B9590] text-sm">Budget endpoint not available</p>
+        <p class="text-[#778399] text-sm">Budget endpoint not available</p>
       {/if}
 
       {#if budgetMessage}
-        <div class="mt-4 px-4 py-3 bg-[#FEF3EC] border-2 border-[#F07030] text-sm text-[#1A1A1A]">
+        <div class="mt-4 px-4 py-3 bg-[#E8EEFF] border border-[#2448CB]/30 rounded-xl text-sm text-[#1B2943]">
           {budgetMessage}
         </div>
       {/if}
     </div>
 
-    <!-- Model Configuration Section -->
-    <div class="mt-5 bg-white border-2 border-[#1A1A1A] p-6">
-      <div class="flex items-center justify-between mb-5">
-        <h3 class="label text-xs uppercase tracking-wider font-bold text-[#9B9590]">Model Configuration</h3>
+    <div class="mt-4 card-soft p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="label text-[#1B2943]">Model Configuration</h3>
         {#if !modelEditing}
           <button
-            on:click={() => modelEditing = true}
-            class="px-3 py-1.5 bg-white text-[#6B6560] border-2 border-[#1A1A1A] text-xs font-bold uppercase tracking-wider
-                   shadow-brutal-sm brutal-shift hover:text-[#1A1A1A] transition-all duration-100"
+            type="button"
+            onclick={() => modelEditing = true}
+            class="btn-surface text-xs font-semibold px-3 py-1.5 hover:border-[#2448CB]"
           >
             Edit
           </button>
@@ -292,16 +285,16 @@
       </div>
 
       {#if modelLoading}
-        <p class="text-[#9B9590] text-sm animate-pulse">Loading model config...</p>
+        <p class="text-[#778399] text-sm animate-pulse">Loading model configuration...</p>
       {:else if modelEditing}
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div class="md:col-span-2">
-            <span class="label text-xs uppercase tracking-wider font-bold text-[#9B9590] block mb-1">Model</span>
+            <label for="select-model" class="label block mb-1">Model Selection</label>
             {#if availableModels.length > 0}
               <select
+                id="select-model"
                 bind:value={editModelId}
-                class="w-full px-3 py-2 bg-white border-2 border-[#1A1A1A] text-sm text-[#1A1A1A]
-                       outline-none focus:border-[#F07030] transition-colors appearance-none"
+                class="input-soft w-full px-3 py-2 text-sm"
               >
                 {#each availableModels as model}
                   <option value={typeof model === 'string' ? model : model.id}>
@@ -311,46 +304,47 @@
               </select>
             {:else}
               <input
+                id="select-model"
                 bind:value={editModelId}
                 placeholder="claude-sonnet-4-20250514"
-                class="w-full px-3 py-2 bg-white border-2 border-[#1A1A1A] text-sm text-[#1A1A1A] font-mono
-                       outline-none focus:border-[#F07030] transition-colors"
+                class="input-soft w-full px-3 py-2 text-sm font-mono"
               />
             {/if}
           </div>
           <div>
-            <span class="label text-xs uppercase tracking-wider font-bold text-[#9B9590] block mb-1">Temperature ({editTemperature})</span>
+            <label for="temperature-range" class="label block mb-1">Temperature ({editTemperature})</label>
             <input
+              id="temperature-range"
               bind:value={editTemperature}
               type="range"
               min="0"
               max="1"
               step="0.1"
-              class="w-full accent-[#F07030]"
+              class="w-full accent-[#2448CB]"
             />
-            <div class="flex justify-between text-[0.6rem] text-[#9B9590] mt-1">
-              <span>0.0</span>
-              <span>1.0</span>
+            <div class="flex justify-between text-[10px] text-[#778399] mt-1 tabular-nums">
+              <span>0.0 (Precise)</span>
+              <span>1.0 (Creative)</span>
             </div>
           </div>
           <div>
-            <span class="label text-xs uppercase tracking-wider font-bold text-[#9B9590] block mb-1">Max Tokens</span>
+            <label for="max-tokens-input" class="label block mb-1">Max Tokens</label>
             <input
+              id="max-tokens-input"
               bind:value={editMaxTokens}
               type="number"
               min="1"
               max="200000"
               placeholder="4096"
-              class="w-full px-3 py-2 bg-white border-2 border-[#1A1A1A] text-sm text-[#1A1A1A] font-mono
-                     outline-none focus:border-[#F07030] transition-colors"
+              class="input-soft w-full px-3 py-2 text-sm font-mono"
             />
           </div>
           <div>
-            <span class="label text-xs uppercase tracking-wider font-bold text-[#9B9590] block mb-1">Thinking</span>
+            <label for="thinking-select" class="label block mb-1">Thinking Mode</label>
             <select
+              id="thinking-select"
               bind:value={editThinking}
-              class="w-full px-3 py-2 bg-white border-2 border-[#1A1A1A] text-sm text-[#1A1A1A]
-                     outline-none focus:border-[#F07030] transition-colors appearance-none"
+              class="input-soft w-full px-3 py-2 text-sm"
             >
               <option value="off">Off</option>
               <option value="low">Low</option>
@@ -361,51 +355,50 @@
         </div>
         <div class="flex items-center gap-3 mt-4">
           <button
-            on:click={saveModel}
+            type="button"
+            onclick={saveModel}
             disabled={modelSaving}
-            class="px-5 py-2 bg-[#F07030] text-white border-2 border-[#1A1A1A] shadow-brutal-sm brutal-shift
-                   uppercase font-bold tracking-wider text-xs transition-all duration-100
-                   disabled:opacity-40 disabled:cursor-not-allowed"
+            class="btn-primary px-5 py-2 text-xs font-semibold disabled:opacity-40"
           >
             {modelSaving ? 'Saving...' : 'Save Model'}
           </button>
           <button
-            on:click={() => modelEditing = false}
-            class="px-5 py-2 bg-white text-[#6B6560] border-2 border-[#1A1A1A] shadow-brutal-sm brutal-shift
-                   uppercase font-bold tracking-wider text-xs transition-all duration-100 hover:text-[#1A1A1A]"
+            type="button"
+            onclick={() => modelEditing = false}
+            class="btn-surface px-4 py-2 text-xs font-semibold text-[#778399]"
           >
             Cancel
           </button>
         </div>
       {:else if modelData}
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <span class="label text-xs uppercase tracking-wider font-bold text-[#9B9590]">Provider</span>
-            <p class="text-lg font-bold text-[#1A1A1A] mt-1">{modelData.provider || 'unknown'}</p>
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+          <div class="p-3 bg-[#F8FAFF] rounded-xl border border-[#DCE4F3]">
+            <span class="label text-[10px]">Provider</span>
+            <p class="text-base font-bold text-[#1B2943] mt-0.5">{modelData.provider || 'unknown'}</p>
           </div>
-          <div>
-            <span class="label text-xs uppercase tracking-wider font-bold text-[#9B9590]">Model</span>
-            <p class="text-lg font-bold text-[#1A1A1A] mt-1 font-mono text-sm">{modelData.model_id || 'unknown'}</p>
+          <div class="p-3 bg-[#F8FAFF] rounded-xl border border-[#DCE4F3] col-span-2 md:col-span-1">
+            <span class="label text-[10px]">Model ID</span>
+            <p class="text-sm font-bold font-mono text-[#1B2943] truncate mt-0.5">{modelData.model_id || 'unknown'}</p>
           </div>
-          <div>
-            <span class="label text-xs uppercase tracking-wider font-bold text-[#9B9590]">Temperature</span>
-            <p class="text-lg font-bold text-[#1A1A1A] mt-1">{modelData.temperature != null ? modelData.temperature : '-'}</p>
+          <div class="p-3 bg-[#F8FAFF] rounded-xl border border-[#DCE4F3]">
+            <span class="label text-[10px]">Temperature</span>
+            <p class="text-base font-bold text-[#1B2943] tabular-nums mt-0.5">{modelData.temperature != null ? modelData.temperature : '-'}</p>
           </div>
-          <div>
-            <span class="label text-xs uppercase tracking-wider font-bold text-[#9B9590]">Max Tokens</span>
-            <p class="text-lg font-bold text-[#1A1A1A] mt-1">{modelData.max_tokens || '-'}</p>
+          <div class="p-3 bg-[#F8FAFF] rounded-xl border border-[#DCE4F3]">
+            <span class="label text-[10px]">Max Tokens</span>
+            <p class="text-base font-bold text-[#1B2943] tabular-nums mt-0.5">{modelData.max_tokens || '-'}</p>
           </div>
-          <div>
-            <span class="label text-xs uppercase tracking-wider font-bold text-[#9B9590]">Thinking</span>
-            <p class="text-lg font-bold text-[#1A1A1A] mt-1 capitalize">{modelData.thinking || 'off'}</p>
+          <div class="p-3 bg-[#F8FAFF] rounded-xl border border-[#DCE4F3]">
+            <span class="label text-[10px]">Thinking</span>
+            <p class="text-base font-bold text-[#1B2943] capitalize mt-0.5">{modelData.thinking || 'off'}</p>
           </div>
         </div>
       {:else}
-        <p class="text-[#9B9590] text-sm">Model endpoint not available</p>
+        <p class="text-[#778399] text-sm">Model endpoint not available</p>
       {/if}
 
       {#if modelMessage}
-        <div class="mt-4 px-4 py-3 bg-[#FEF3EC] border-2 border-[#F07030] text-sm text-[#1A1A1A]">
+        <div class="mt-4 px-4 py-3 bg-[#E8EEFF] border border-[#2448CB]/30 rounded-xl text-sm text-[#1B2943]">
           {modelMessage}
         </div>
       {/if}

@@ -1,7 +1,9 @@
-use std::time::Duration;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
+use reqwest::header::HeaderMap;
 use tracing::{info, warn};
 
 use ryvos_core::config::{ModelConfig, RetryConfig};
@@ -9,11 +11,191 @@ use ryvos_core::error::{Result, RyvosError};
 use ryvos_core::traits::LlmClient;
 use ryvos_core::types::*;
 
-/// An LLM client that retries failed requests and falls back to alternative providers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CircuitState {
+    Closed,
+    Open,
+    HalfOpen,
+}
+
+struct CircuitBreakerInner {
+    state: CircuitState,
+    failure_timestamps: Vec<Instant>,
+    last_failure_time: Option<Instant>,
+    retry_after: Option<Duration>,
+}
+
+pub struct CircuitBreaker {
+    failure_threshold: u32,
+    window_duration: Duration,
+    default_cooldown: Duration,
+    inner: Mutex<CircuitBreakerInner>,
+}
+
+impl Default for CircuitBreaker {
+    fn default() -> Self {
+        Self::new(3, Duration::from_secs(30))
+    }
+}
+
+impl CircuitBreaker {
+    pub fn new(failure_threshold: u32, cooldown: Duration) -> Self {
+        Self::with_window(failure_threshold, cooldown, Duration::from_secs(60))
+    }
+
+    pub fn with_window(failure_threshold: u32, cooldown: Duration, window: Duration) -> Self {
+        Self {
+            failure_threshold,
+            window_duration: window,
+            default_cooldown: cooldown,
+            inner: Mutex::new(CircuitBreakerInner {
+                state: CircuitState::Closed,
+                failure_timestamps: Vec::new(),
+                last_failure_time: None,
+                retry_after: None,
+            }),
+        }
+    }
+
+    pub fn state(&self) -> CircuitState {
+        let mut inner = self.inner.lock().unwrap();
+        if inner.state == CircuitState::Open {
+            if let Some(last_fail) = inner.last_failure_time {
+                let required_cooldown = inner.retry_after.unwrap_or(self.default_cooldown);
+                if last_fail.elapsed() >= required_cooldown {
+                    inner.state = CircuitState::HalfOpen;
+                }
+            }
+        }
+        inner.state
+    }
+
+    pub fn allow_request(&self) -> bool {
+        match self.state() {
+            CircuitState::Closed => true,
+            CircuitState::HalfOpen => true,
+            CircuitState::Open => false,
+        }
+    }
+
+    pub fn record_success(&self) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.failure_timestamps.clear();
+        inner.last_failure_time = None;
+        inner.retry_after = None;
+        inner.state = CircuitState::Closed;
+    }
+
+    pub fn record_failure(&self, is_429: bool, custom_retry_after: Option<Duration>) {
+        let now = Instant::now();
+        let mut inner = self.inner.lock().unwrap();
+        inner.last_failure_time = Some(now);
+        if let Some(ra) = custom_retry_after {
+            inner.retry_after = Some(ra);
+        }
+
+        let window = self.window_duration;
+        inner.failure_timestamps.retain(|t| now.duration_since(*t) <= window);
+        inner.failure_timestamps.push(now);
+        let failure_count = inner.failure_timestamps.len() as u32;
+
+        if is_429 || failure_count >= self.failure_threshold {
+            inner.state = CircuitState::Open;
+        }
+    }
+
+    pub fn failure_count(&self) -> usize {
+        let now = Instant::now();
+        let mut inner = self.inner.lock().unwrap();
+        let window = self.window_duration;
+        inner.failure_timestamps.retain(|t| now.duration_since(*t) <= window);
+        inner.failure_timestamps.len()
+    }
+
+    pub fn parse_retry_after_headers(headers: &HeaderMap) -> Option<Duration> {
+        if let Some(val) = headers.get("retry-after") {
+            if let Ok(val_str) = val.to_str() {
+                if let Some(d) = parse_duration_value(val_str) {
+                    return Some(d);
+                }
+                if let Ok(date) = chrono::DateTime::parse_from_rfc2822(val_str) {
+                    let now = chrono::Utc::now();
+                    let date_utc = date.with_timezone(&chrono::Utc);
+                    if date_utc > now {
+                        if let Ok(d) = (date_utc - now).to_std() {
+                            return Some(d);
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(val) = headers.get("x-ratelimit-reset") {
+            if let Ok(val_str) = val.to_str() {
+                if let Some(d) = parse_duration_value(val_str) {
+                    return Some(d);
+                }
+            }
+        }
+        if let Some(val) = headers.get("x-ratelimit-reset-requests").or_else(|| headers.get("x-ratelimit-reset-tokens")) {
+            if let Ok(val_str) = val.to_str() {
+                if let Some(d) = parse_duration_value(val_str) {
+                    return Some(d);
+                }
+            }
+        }
+        None
+    }
+
+    pub fn parse_retry_after_str(msg: &str) -> Option<Duration> {
+        let lower = msg.to_lowercase();
+        let marker = lower
+            .find("retry-after")
+            .or_else(|| lower.find("retry after"))
+            .or_else(|| lower.find("retry_after"))
+            .map(|idx| idx + 11);
+
+        if let Some(start) = marker {
+            let slice = &lower[start..];
+            let trimmed = slice.trim_start_matches(|c: char| c == ':' || c == '=' || c.is_whitespace());
+            return parse_duration_value(trimmed);
+        }
+        None
+    }
+}
+
+fn parse_duration_value(s: &str) -> Option<Duration> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+
+    let end_of_num = s.find(|c: char| !c.is_ascii_digit() && c != '.').unwrap_or(s.len());
+    let num_part = &s[..end_of_num];
+    let unit_part = s[end_of_num..].trim().to_lowercase();
+
+    if let Ok(secs_f) = num_part.parse::<f64>() {
+        if unit_part.starts_with("ms") {
+            return Some(Duration::from_millis(secs_f as u64));
+        }
+        if secs_f > 1_000_000_000.0 {
+            if let Ok(now_unix) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+                let target = secs_f as u64;
+                let current = now_unix.as_secs();
+                if target > current {
+                    return Some(Duration::from_secs(target - current));
+                }
+            }
+        }
+        return Some(Duration::from_secs_f64(secs_f.max(0.0)));
+    }
+    None
+}
+
 pub struct RetryingClient {
     primary: Box<dyn LlmClient>,
     fallbacks: Vec<(ModelConfig, Box<dyn LlmClient>)>,
     retry_config: RetryConfig,
+    circuit_breaker: CircuitBreaker,
 }
 
 impl RetryingClient {
@@ -26,19 +208,65 @@ impl RetryingClient {
             primary,
             fallbacks,
             retry_config,
+            circuit_breaker: CircuitBreaker::new(3, Duration::from_secs(30)),
         }
+    }
+
+    pub fn with_circuit_breaker(mut self, circuit_breaker: CircuitBreaker) -> Self {
+        self.circuit_breaker = circuit_breaker;
+        self
+    }
+
+    pub fn circuit_breaker(&self) -> &CircuitBreaker {
+        &self.circuit_breaker
+    }
+
+    async fn execute_fallbacks<'a>(
+        &'a self,
+        messages: Vec<ChatMessage>,
+        tools: Vec<ToolDefinition>,
+    ) -> Result<BoxStream<'a, Result<StreamDelta>>> {
+        let mut last_fb_err = None;
+        for (fb_config, fb_client) in &self.fallbacks {
+            match fb_client
+                .chat_stream(fb_config, messages.clone(), &tools)
+                .await
+            {
+                Ok(stream) => {
+                    info!(
+                        model = %fb_config.model_id,
+                        provider = %fb_config.provider,
+                        "Fell back to alternative model"
+                    );
+                    return Ok(stream);
+                }
+                Err(e) => {
+                    warn!(
+                        model = %fb_config.model_id,
+                        error = %e,
+                        "Fallback model failed"
+                    );
+                    last_fb_err = Some(e);
+                    continue;
+                }
+            }
+        }
+        Err(last_fb_err.unwrap_or_else(|| {
+            RyvosError::LlmRequest("Primary exhausted and all fallback models failed".into())
+        }))
     }
 }
 
 fn is_retryable(e: &RyvosError) -> bool {
     match e {
         RyvosError::LlmRequest(msg) => {
-            msg.contains("429")
-                || msg.contains("500")
-                || msg.contains("502")
-                || msg.contains("503")
-                || msg.contains("timeout")
-                || msg.contains("connection")
+            let lower = msg.to_lowercase();
+            lower.contains("429")
+                || lower.contains("500")
+                || lower.contains("502")
+                || lower.contains("503")
+                || lower.contains("timeout")
+                || lower.contains("connection")
         }
         RyvosError::LlmStream(_) => true,
         _ => false,
@@ -46,10 +274,9 @@ fn is_retryable(e: &RyvosError) -> bool {
 }
 
 fn calculate_backoff(attempt: u32, config: &RetryConfig) -> Duration {
-    let ms = (config.initial_backoff_ms * 2u64.pow(attempt)).min(config.max_backoff_ms);
-    // Add jitter: 0.8x to 1.2x
+    let ms = (config.initial_backoff_ms.saturating_mul(2u64.pow(attempt.min(10)))).min(config.max_backoff_ms);
     let jitter = 0.8 + rand::random::<f64>() * 0.4;
-    Duration::from_millis((ms as f64 * jitter) as u64)
+    Duration::from_millis(((ms as f64) * jitter) as u64)
 }
 
 impl LlmClient for RetryingClient {
@@ -66,7 +293,11 @@ impl LlmClient for RetryingClient {
         Box::pin(async move {
             let max_retries = self.retry_config.max_retries;
 
-            // Try primary with retries
+            if !self.circuit_breaker.allow_request() {
+                warn!("Circuit breaker is Open; fast-failing over immediately");
+                return self.execute_fallbacks(messages, tools).await;
+            }
+
             let mut last_err = None;
             for attempt in 0..=max_retries {
                 match self
@@ -74,9 +305,34 @@ impl LlmClient for RetryingClient {
                     .chat_stream(&config, messages.clone(), &tools)
                     .await
                 {
-                    Ok(stream) => return Ok(stream),
+                    Ok(stream) => {
+                        self.circuit_breaker.record_success();
+                        return Ok(stream);
+                    }
                     Err(e) => {
-                        if is_retryable(&e) && attempt < max_retries {
+                        let is_429 = match &e {
+                            RyvosError::LlmRequest(msg) => {
+                                let lower = msg.to_lowercase();
+                                lower.contains("429") || lower.contains("rate limit")
+                            }
+                            _ => false,
+                        };
+                        let retry_after = match &e {
+                            RyvosError::LlmRequest(msg) => CircuitBreaker::parse_retry_after_str(msg),
+                            _ => None,
+                        };
+
+                        self.circuit_breaker.record_failure(is_429, retry_after);
+
+                        if is_429 {
+                            warn!(error = %e, "Rate limit hit; fast-failing over immediately");
+                            if !self.fallbacks.is_empty() {
+                                return self.execute_fallbacks(messages, tools).await;
+                            }
+                            return Err(e);
+                        }
+
+                        if is_retryable(&e) && attempt < max_retries && self.circuit_breaker.allow_request() {
                             let backoff = calculate_backoff(attempt, &self.retry_config);
                             warn!(
                                 attempt = attempt + 1,
@@ -89,41 +345,66 @@ impl LlmClient for RetryingClient {
                             last_err = Some(e);
                             continue;
                         }
+
                         last_err = Some(e);
                         break;
                     }
                 }
             }
 
-            // Primary exhausted — try fallbacks
             if !self.fallbacks.is_empty() {
                 info!("Primary LLM exhausted, trying fallback models");
-            }
-            for (fb_config, fb_client) in &self.fallbacks {
-                match fb_client
-                    .chat_stream(fb_config, messages.clone(), &tools)
-                    .await
-                {
-                    Ok(stream) => {
-                        info!(
-                            model = %fb_config.model_id,
-                            provider = %fb_config.provider,
-                            "Fell back to alternative model"
-                        );
-                        return Ok(stream);
-                    }
-                    Err(e) => {
-                        warn!(
-                            model = %fb_config.model_id,
-                            error = %e,
-                            "Fallback model also failed"
-                        );
-                        continue;
-                    }
-                }
+                return self.execute_fallbacks(messages, tools).await;
             }
 
             Err(last_err.unwrap_or_else(|| RyvosError::LlmRequest("All providers failed".into())))
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_circuit_breaker_transitions() {
+        let cb = CircuitBreaker::new(3, Duration::from_millis(30));
+        assert_eq!(cb.state(), CircuitState::Closed);
+        assert!(cb.allow_request());
+
+        cb.record_failure(false, None);
+        cb.record_failure(false, None);
+        assert_eq!(cb.state(), CircuitState::Closed);
+
+        cb.record_failure(false, None);
+        assert_eq!(cb.state(), CircuitState::Open);
+        assert!(!cb.allow_request());
+
+        std::thread::sleep(Duration::from_millis(35));
+        assert_eq!(cb.state(), CircuitState::HalfOpen);
+        assert!(cb.allow_request());
+
+        cb.record_success();
+        assert_eq!(cb.state(), CircuitState::Closed);
+    }
+
+    #[test]
+    fn test_circuit_breaker_immediate_429_trip() {
+        let cb = CircuitBreaker::new(5, Duration::from_millis(50));
+        cb.record_failure(true, Some(Duration::from_millis(20)));
+        assert_eq!(cb.state(), CircuitState::Open);
+        assert!(!cb.allow_request());
+    }
+
+    #[test]
+    fn test_parse_retry_after_str() {
+        let s1 = "HTTP 429 Too Many Requests (retry-after: 5s)";
+        assert_eq!(CircuitBreaker::parse_retry_after_str(s1), Some(Duration::from_secs(5)));
+
+        let s2 = "Rate limited: retry after 15";
+        assert_eq!(CircuitBreaker::parse_retry_after_str(s2), Some(Duration::from_secs(15)));
+
+        let s3 = "Retry_after=500ms";
+        assert_eq!(CircuitBreaker::parse_retry_after_str(s3), Some(Duration::from_millis(500)));
     }
 }

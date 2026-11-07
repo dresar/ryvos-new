@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -9,23 +10,16 @@ use ryvos_core::error::{Result, RyvosError};
 use ryvos_core::event::EventBus;
 use ryvos_core::security::{
     summarize_input, tool_has_side_effects, ApprovalDecision, ApprovalRequest, SecurityPolicy,
+    SecurityTier,
 };
 use ryvos_core::traits::Tool;
-use ryvos_core::types::{ToolContext, ToolDefinition, ToolResult};
+use ryvos_core::types::{ToolContext, ToolDefinition, ToolIndexEntry, ToolResult, TrustLevel};
 use ryvos_tools::ToolRegistry;
 
 use crate::approval::ApprovalBroker;
 use crate::audit::{AuditEntry, AuditTrail};
 use crate::safety_memory::{assess_outcome, SafetyMemory, SafetyOutcome};
 
-/// SecurityGate — passthrough that logs, learns, and optionally pauses.
-///
-/// **No tool is ever blocked.** The gate:
-/// 1. Logs the tool call to the audit trail
-/// 2. Checks safety memory for relevant lessons (informational)
-/// 3. If user configured `pause_before`, waits for acknowledgment
-/// 4. Executes the tool — always
-/// 5. Post-action: assesses outcome and records lessons
 pub struct SecurityGate {
     policy: SecurityPolicy,
     tools: Arc<tokio::sync::RwLock<ToolRegistry>>,
@@ -34,6 +28,7 @@ pub struct SecurityGate {
     event_bus: Arc<EventBus>,
     safety_memory: Option<Arc<SafetyMemory>>,
     audit_trail: Option<Arc<AuditTrail>>,
+    tainted_sessions: Arc<tokio::sync::RwLock<HashSet<String>>>,
 }
 
 impl SecurityGate {
@@ -50,20 +45,33 @@ impl SecurityGate {
             event_bus,
             safety_memory: None,
             audit_trail: None,
+            tainted_sessions: Arc::new(tokio::sync::RwLock::new(HashSet::new())),
         }
     }
 
-    /// Set the safety memory store for self-learning.
     pub fn set_safety_memory(&mut self, memory: Arc<SafetyMemory>) {
         self.safety_memory = Some(memory);
     }
 
-    /// Set the audit trail for persistent logging.
     pub fn set_audit_trail(&mut self, trail: Arc<AuditTrail>) {
         self.audit_trail = Some(trail);
     }
 
-    /// Main entry point — always executes the tool.
+    pub async fn mark_session_tainted(&self, session_id: &str) {
+        let mut lock = self.tainted_sessions.write().await;
+        lock.insert(session_id.to_string());
+    }
+
+    pub async fn is_session_tainted(&self, session_id: &str) -> bool {
+        let lock = self.tainted_sessions.read().await;
+        lock.contains(session_id)
+    }
+
+    pub async fn clear_session_taint(&self, session_id: &str) {
+        let mut lock = self.tainted_sessions.write().await;
+        lock.remove(session_id);
+    }
+
     pub async fn execute(
         &self,
         name: &str,
@@ -77,10 +85,8 @@ impl SecurityGate {
                 .ok_or_else(|| RyvosError::ToolNotFound(name.to_string()))?
         };
 
-        // 1. Log to audit trail (pre-execution)
         let input_summary = summarize_input(name, &input);
 
-        // 2. Check safety memory (informational, never blocking)
         let mut lesson_ids = Vec::new();
         if let Some(ref memory) = self.safety_memory {
             if let Ok(lessons) = memory.relevant_lessons(name, 3).await {
@@ -95,7 +101,6 @@ impl SecurityGate {
             }
         }
 
-        // 2b. Generate safety reasoning
         let safety_reasoning = Some(match (tool_has_side_effects(name), lesson_ids.len()) {
             (false, 0) => "Read-only, no prior incidents".to_string(),
             (true, 0) => format!("Side-effect tool ({})", name),
@@ -103,14 +108,47 @@ impl SecurityGate {
             (true, n) => format!("Side-effect tool ({}); {} lesson(s) available", name, n),
         });
 
-        // 3. Optional soft checkpoint (pause_before)
-        if self.policy.should_pause(name) && tool_has_side_effects(name) {
+        let session_id_str = ctx.session_id.to_string();
+        let is_tainted = self.is_session_tainted(&session_id_str).await;
+
+        if is_tainted && (tool.tier() >= SecurityTier::T2 || tool_has_side_effects(name)) {
+            let req = ApprovalRequest {
+                id: Uuid::new_v4().to_string(),
+                tool_name: name.to_string(),
+                tier: tool.tier(),
+                input_summary: format!("Execution of {} under tainted context", name),
+                session_id: session_id_str.clone(),
+                timestamp: Utc::now(),
+            };
+
+            let rx = self.broker.request(req).await;
+            let timeout = Duration::from_secs(self.policy.approval_timeout_secs);
+            match tokio::time::timeout(timeout, rx).await {
+                Ok(Ok(ApprovalDecision::Approved)) => {
+                    debug!(tool = name, "Tainted execution approved");
+                }
+                Ok(Ok(ApprovalDecision::Denied { reason })) => {
+                    warn!(tool = name, reason = %reason, "Tainted execution denied by policy");
+                    return Err(RyvosError::ApprovalDenied {
+                        tool: name.to_string(),
+                        reason: format!("Denied by policy: {}", reason),
+                    });
+                }
+                _ => {
+                    warn!(tool = name, "Tainted execution timed out waiting for approval");
+                    return Err(RyvosError::ApprovalDenied {
+                        tool: name.to_string(),
+                        reason: "Tainted execution timed out waiting for approval".to_string(),
+                    });
+                }
+            }
+        } else if self.policy.should_pause(name) && tool_has_side_effects(name) {
             let req = ApprovalRequest {
                 id: Uuid::new_v4().to_string(),
                 tool_name: name.to_string(),
                 tier: tool.tier(),
                 input_summary: input_summary.clone(),
-                session_id: ctx.session_id.to_string(),
+                session_id: session_id_str.clone(),
                 timestamp: Utc::now(),
             };
 
@@ -119,7 +157,6 @@ impl SecurityGate {
 
             match tokio::time::timeout(timeout, rx).await {
                 Ok(Ok(ApprovalDecision::Denied { reason })) => {
-                    // User explicitly denied — this is the ONLY way a tool gets stopped
                     warn!(tool = name, reason = %reason, "User denied soft checkpoint");
                     return Err(RyvosError::ApprovalDenied {
                         tool: name.to_string(),
@@ -130,24 +167,28 @@ impl SecurityGate {
                     debug!(tool = name, "Soft checkpoint approved");
                 }
                 Ok(Err(_)) | Err(_) => {
-                    // Timeout or channel dropped — proceed anyway (no blocking)
                     debug!(tool = name, "Soft checkpoint timed out — proceeding");
                 }
             }
         }
 
-        // 4. Execute — always
         let result = self
             .execute_tool_direct(&tool, name, input.clone(), ctx.clone())
             .await;
 
-        // 5. Post-action: assess outcome and learn
+        if let Ok(ref tool_result) = result {
+            if tool_result.trust == TrustLevel::Untrusted
+                || tool_result.content.contains("<untrusted_content>")
+            {
+                self.mark_session_tainted(&session_id_str).await;
+            }
+        }
+
         match &result {
             Ok(tool_result) => {
                 let outcome =
                     assess_outcome(name, &input, &tool_result.content, tool_result.is_error);
 
-                // Record to audit trail (post-execution)
                 if let Some(ref trail) = self.audit_trail {
                     let output_preview: String = tool_result.content.chars().take(200).collect();
                     let entry = AuditEntry {
@@ -165,7 +206,6 @@ impl SecurityGate {
                     }
                 }
 
-                // Record safety lesson for incidents
                 if let Some(ref memory) = self.safety_memory {
                     match &outcome {
                         SafetyOutcome::Incident {
@@ -199,7 +239,6 @@ impl SecurityGate {
                             }
                         }
                         SafetyOutcome::NearMiss { .. } => {
-                            // Reinforce relevant existing lessons
                             for id in &lesson_ids {
                                 if let Err(e) = memory.reinforce(id).await {
                                     debug!(error = %e, lesson_id = %id, "Failed to reinforce lesson");
@@ -211,7 +250,6 @@ impl SecurityGate {
                 }
             }
             Err(e) => {
-                // Record execution error in audit trail
                 if let Some(ref trail) = self.audit_trail {
                     let entry = AuditEntry {
                         timestamp: Utc::now(),
@@ -236,7 +274,6 @@ impl SecurityGate {
         result
     }
 
-    /// Execute a tool directly using an already-resolved Arc<dyn Tool>.
     async fn execute_tool_direct(
         &self,
         tool: &Arc<dyn Tool>,
@@ -254,27 +291,34 @@ impl SecurityGate {
         }
     }
 
-    /// Get tool definitions (delegates to registry).
     pub async fn definitions(&self) -> Vec<ToolDefinition> {
         self.tools.read().await.definitions()
     }
 
-    /// Get a reference to the underlying tool registry lock.
+    pub async fn l1_index(&self) -> Vec<ToolIndexEntry> {
+        self.tools.read().await.l1_index()
+    }
+
+    pub async fn l2_schema(&self, name: &str) -> Option<serde_json::Value> {
+        self.tools.read().await.l2_schema(name)
+    }
+
+    pub async fn l2_definition(&self, name: &str) -> Option<ToolDefinition> {
+        self.tools.read().await.l2_definition(name)
+    }
+
     pub fn tools_lock(&self) -> &Arc<tokio::sync::RwLock<ToolRegistry>> {
         &self.tools
     }
 
-    /// Get the current security policy.
     pub fn policy(&self) -> &SecurityPolicy {
         &self.policy
     }
 
-    /// Get the safety memory (if configured).
     pub fn safety_memory(&self) -> Option<&Arc<SafetyMemory>> {
         self.safety_memory.as_ref()
     }
 
-    /// Get the audit trail (if configured).
     pub fn audit_trail(&self) -> Option<&Arc<AuditTrail>> {
         self.audit_trail.as_ref()
     }
@@ -308,11 +352,9 @@ mod tests {
 
     #[tokio::test]
     async fn all_tools_execute_freely() {
-        // With the new passthrough gate, even "dangerous" commands execute
         let gate = make_gate(SecurityPolicy::default());
         let input = serde_json::json!({"command": "echo hello"});
         let result = gate.execute("bash", input, test_ctx()).await;
-        // bash should execute successfully (not blocked)
         assert!(result.is_ok());
     }
 
@@ -321,7 +363,6 @@ mod tests {
         let gate = make_gate(SecurityPolicy::default());
         let input = serde_json::json!({"file_path": "/tmp/test.txt"});
         let result = gate.execute("read", input, test_ctx()).await;
-        // read is safe — might fail on file not found, but won't be blocked
         assert!(
             result.is_ok() || matches!(result, Err(RyvosError::ToolExecution { .. })),
             "T0 tool should never be blocked"
@@ -330,14 +371,12 @@ mod tests {
 
     #[tokio::test]
     async fn no_blocking_on_any_tier() {
-        // Even with old-style config, tools are never blocked
         let policy = SecurityPolicy {
-            deny_above: Some(SecurityTier::T1), // Would have blocked T2+ before
+            deny_above: Some(SecurityTier::T1),
             ..Default::default()
         };
         let gate = make_gate(policy);
         let input = serde_json::json!({"command": "echo hello"});
-        // bash (T2) would have been blocked before — now it executes
         let result = gate.execute("bash", input, test_ctx()).await;
         assert!(result.is_ok());
     }
@@ -353,16 +392,83 @@ mod tests {
 
     #[tokio::test]
     async fn pause_before_timeout_proceeds() {
-        // If pause_before is set but no one approves, it proceeds after timeout
         let policy = SecurityPolicy {
             pause_before: vec!["bash".to_string()],
-            approval_timeout_secs: 0, // Instant timeout
+            approval_timeout_secs: 0,
             ..Default::default()
         };
         let gate = make_gate(policy);
         let input = serde_json::json!({"command": "echo hello"});
-        // Should proceed after timeout (not blocked)
         let result = gate.execute("bash", input, test_ctx()).await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn tainted_session_requires_approval() {
+        let event_bus = Arc::new(EventBus::default());
+        let broker = Arc::new(ApprovalBroker::new(event_bus.clone()));
+        let tools = Arc::new(tokio::sync::RwLock::new(ToolRegistry::with_builtins()));
+        let policy = SecurityPolicy {
+            approval_timeout_secs: 1,
+            ..Default::default()
+        };
+        let gate = SecurityGate::new(policy, tools, broker.clone(), event_bus);
+
+        let ctx = test_ctx();
+        let session_id = ctx.session_id.to_string();
+        gate.mark_session_tainted(&session_id).await;
+        assert!(gate.is_session_tainted(&session_id).await);
+
+        let broker_clone = broker.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            let pending = broker_clone.pending_requests().await;
+            if let Some(first) = pending.first() {
+                let _ = broker_clone
+                    .respond(&first.id, ApprovalDecision::Approved)
+                    .await;
+            }
+        });
+
+        let input = serde_json::json!({"command": "echo approved"});
+        let result = gate.execute("bash", input, ctx).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn tainted_session_denies_on_rejection() {
+        let event_bus = Arc::new(EventBus::default());
+        let broker = Arc::new(ApprovalBroker::new(event_bus.clone()));
+        let tools = Arc::new(tokio::sync::RwLock::new(ToolRegistry::with_builtins()));
+        let policy = SecurityPolicy {
+            approval_timeout_secs: 1,
+            ..Default::default()
+        };
+        let gate = SecurityGate::new(policy, tools, broker.clone(), event_bus);
+
+        let ctx = test_ctx();
+        let session_id = ctx.session_id.to_string();
+        gate.mark_session_tainted(&session_id).await;
+
+        let broker_clone = broker.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            let pending = broker_clone.pending_requests().await;
+            if let Some(first) = pending.first() {
+                let _ = broker_clone
+                    .respond(
+                        &first.id,
+                        ApprovalDecision::Denied {
+                            reason: "Denied by policy test".to_string(),
+                        },
+                    )
+                    .await;
+            }
+        });
+
+        let input = serde_json::json!({"command": "echo denied"});
+        let result = gate.execute("bash", input, ctx).await;
+        assert!(result.is_err());
+        assert!(matches!(result, Err(RyvosError::ApprovalDenied { .. })));
     }
 }

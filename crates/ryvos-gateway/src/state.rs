@@ -12,7 +12,6 @@ use ryvos_core::event::EventBus;
 use ryvos_core::traits::SessionStore;
 use ryvos_memory::{CostStore, IntegrationStore, SessionMetaStore, VikingClient};
 
-/// Shared application state for axum handlers.
 pub struct AppState {
     pub config: GatewayConfig,
     pub runtime: Arc<AgentRuntime>,
@@ -32,4 +31,5 @@ pub struct AppState {
     pub integrations_config: IntegrationsConfig,
     pub safety_memory: Option<Arc<SafetyMemory>>,
     pub failure_journal: Option<Arc<FailureJournal>>,
+    pub mcp_manager: Option<Arc<ryvos_mcp::McpClientManager>>,
 }

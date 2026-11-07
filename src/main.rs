@@ -2,6 +2,7 @@ mod doctor;
 mod onboard;
 mod viking_server;
 
+use std::collections::{HashMap, HashSet};
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -391,7 +392,6 @@ async fn main() -> anyhow::Result<()> {
             Arc::from(primary_llm)
         };
 
-    // Merge .mcp.json project config if present
     let mut mcp_config = config.mcp.clone().unwrap_or_default();
     if let Some(project_mcp) = load_mcp_json() {
         for (name, entry) in project_mcp.mcp_servers {
@@ -399,7 +399,7 @@ async fn main() -> anyhow::Result<()> {
                 if let std::collections::hash_map::Entry::Vacant(e) =
                     mcp_config.servers.entry(name.clone())
                 {
-                    info!(server = %name, "Loaded MCP server from .mcp.json");
+                    info!(server = %name, "Loaded MCP server from config");
                     e.insert(server_config);
                 }
             }
@@ -974,12 +974,14 @@ async fn main() -> anyhow::Result<()> {
             if let Some(ref vc) = viking_client {
                 server.set_viking_client(vc.clone());
             }
+            if let Some(ref mgr) = mcp_manager {
+                server.set_mcp_manager(mgr.clone());
+            }
             server.set_config_path(cli.config.clone());
 
-            // Integration store for OAuth tokens
             let integration_store = Arc::new(
                 ryvos_memory::IntegrationStore::open(&workspace.join("integrations.db"))
-                    .expect("Failed to open integration store"),
+                    .map_err(|e| anyhow::anyhow!("Failed to open integration store: {e}"))?,
             );
             server.set_integration_store(integration_store);
             server.set_integrations_config(config.integrations.clone());
@@ -1049,12 +1051,11 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
 
-            // Create persistent session meta store
             let data_dir = workspace.join("data");
             std::fs::create_dir_all(&data_dir).ok();
             let session_meta = Arc::new(
                 ryvos_memory::SessionMetaStore::open(&data_dir.join("session_meta.db"))
-                    .expect("Failed to open session meta store"),
+                    .map_err(|e| anyhow::anyhow!("Failed to open session meta store: {e}"))?,
             );
 
             // Hydrate in-memory sessions from persistent store
@@ -1135,13 +1136,15 @@ async fn main() -> anyhow::Result<()> {
                 if let Some(ref vc) = viking_client {
                     server.set_viking_client(vc.clone());
                 }
+                if let Some(ref mgr) = mcp_manager {
+                    server.set_mcp_manager(mgr.clone());
+                }
                 server.set_config_path(cli.config.clone());
                 server.set_session_meta(session_meta.clone());
 
-                // Integration store for OAuth tokens
                 let integration_store = Arc::new(
                     ryvos_memory::IntegrationStore::open(&workspace.join("integrations.db"))
-                        .expect("Failed to open integration store"),
+                        .map_err(|e| anyhow::anyhow!("Failed to open integration store: {e}"))?,
                 );
                 server.set_integration_store(integration_store);
                 server.set_integrations_config(config.integrations.clone());
@@ -1202,14 +1205,18 @@ async fn main() -> anyhow::Result<()> {
 
             dispatcher.run().await?;
         }
-        Some(Commands::Init { .. }) => unreachable!("handled before config load"),
-        Some(Commands::Completions { .. }) => unreachable!("handled before config load"),
-        Some(Commands::Mcp { .. }) => unreachable!("handled before config load"),
-        Some(Commands::Skill { .. }) => unreachable!("handled before config load"),
-        Some(Commands::Soul) => unreachable!("handled before config load"),
-        Some(Commands::Update { .. }) => unreachable!("handled before config load"),
-        Some(Commands::McpServer) => unreachable!("handled before config load"),
-        Some(Commands::VikingServer { .. }) => unreachable!("handled before config load"),
+        Some(
+            Commands::Init { .. }
+            | Commands::Completions { .. }
+            | Commands::Mcp { .. }
+            | Commands::Skill { .. }
+            | Commands::Soul
+            | Commands::Update { .. }
+            | Commands::McpServer
+            | Commands::VikingServer { .. },
+        ) => {
+            anyhow::bail!("Command handled before config load");
+        }
         Some(Commands::Repl) | None => {
             run_repl(
                 &runtime,
@@ -2200,22 +2207,53 @@ async fn handle_skill_cli(action: &SkillAction) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Load .mcp.json from the current working directory.
 fn load_mcp_json() -> Option<McpJsonConfig> {
-    let path = std::env::current_dir().ok()?.join(".mcp.json");
-    if !path.exists() {
-        return None;
+    let mut candidate_paths = Vec::new();
+    if let Ok(cwd) = std::env::current_dir() {
+        candidate_paths.push(cwd.join(".mcp.json"));
     }
-    let content = std::fs::read_to_string(&path).ok()?;
-    match serde_json::from_str(&content) {
-        Ok(config) => {
-            info!(path = %path.display(), "Loaded .mcp.json project config");
-            Some(config)
+    if let Some(home) = dirs_home() {
+        candidate_paths.push(home.join(".gemini").join("config").join("mcp_config.json"));
+    }
+    candidate_paths.push(PathBuf::from(
+        "/opt/data/home/agy-profiles/agy12/.gemini/config/mcp_config.json",
+    ));
+
+    let mut merged_servers = HashMap::new();
+    let mut loaded_any = false;
+    let mut seen_canonical = HashSet::new();
+
+    for path in candidate_paths {
+        if let Ok(canonical) = path.canonicalize() {
+            if !seen_canonical.insert(canonical) {
+                continue;
+            }
         }
-        Err(e) => {
-            warn!(path = %path.display(), error = %e, "Failed to parse .mcp.json");
-            None
+        if !path.exists() {
+            continue;
         }
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            match serde_json::from_str::<McpJsonConfig>(&content) {
+                Ok(config) => {
+                    info!(path = %path.display(), "Loaded MCP configuration");
+                    loaded_any = true;
+                    for (name, entry) in config.mcp_servers {
+                        merged_servers.entry(name).or_insert(entry);
+                    }
+                }
+                Err(e) => {
+                    warn!(path = %path.display(), error = %e, "Failed to parse MCP configuration");
+                }
+            }
+        }
+    }
+
+    if loaded_any {
+        Some(McpJsonConfig {
+            mcp_servers: merged_servers,
+        })
+    } else {
+        None
     }
 }
 

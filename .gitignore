@@ -25,3 +25,12 @@ config.toml
 
 # Ryvos workspace data
 .ryvos/
+
+# Agent teamwork scratch
+.agents/teamwork/
+
+# Node
+node_modules/
+crates/ryvos-gateway/ui-src/node_modules/
+
+

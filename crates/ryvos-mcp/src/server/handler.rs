@@ -172,12 +172,9 @@ impl RyvosServerHandler {
         memory::daily_log_write(&self.workspace, &params.0.entry)
     }
 
-    // ── Audit Trail Tools ──
-
-    /// Query recent tool executions from the audit trail.
     #[tool(
         name = "audit_query",
-        description = "Query recent tool executions — shows tool name, input, outcome, and timestamp."
+        description = "Query recent tool executions - shows tool name, input, outcome, and timestamp."
     )]
     async fn audit_query(&self, params: Parameters<AuditQueryParams>) -> String {
         let Some(ref audit) = self.audit else {
@@ -187,10 +184,9 @@ impl RyvosServerHandler {
         audit::query(audit, limit).await
     }
 
-    /// Get aggregate tool call statistics from the audit trail.
     #[tool(
         name = "audit_stats",
-        description = "Get aggregate tool call statistics — counts per tool, total calls."
+        description = "Get aggregate tool call statistics - counts per tool, total calls."
     )]
     async fn audit_stats(&self) -> String {
         let Some(ref audit) = self.audit else {
@@ -199,12 +195,9 @@ impl RyvosServerHandler {
         audit::stats(audit).await
     }
 
-    // ── Safety & Healing Introspection Tools ──
-
-    /// List or search safety lessons learned by the agent.
     #[tool(
         name = "safety_lessons_list",
-        description = "List or search safety lessons — rules the agent learned from past incidents and corrections."
+        description = "List or search safety lessons - rules the agent learned from past incidents and corrections."
     )]
     async fn safety_lessons_list(&self, params: Parameters<SafetyLessonsParams>) -> String {
         let Some(ref sm) = self.safety_memory else {
@@ -214,10 +207,9 @@ impl RyvosServerHandler {
         safety::list_lessons(sm, params.0.search.as_deref(), limit).await
     }
 
-    /// Query agent decision audit trail.
     #[tool(
         name = "decisions_query",
-        description = "Query the agent's decision audit trail — shows what tools were chosen, alternatives considered, and outcomes."
+        description = "Query the agent's decision audit trail - shows what tools were chosen, alternatives considered, and outcomes."
     )]
     async fn decisions_query(&self, params: Parameters<DecisionsQueryParams>) -> String {
         let Some(ref fj) = self.failure_journal else {
@@ -227,10 +219,9 @@ impl RyvosServerHandler {
         healing::query_decisions(fj, params.0.session_id.as_deref(), limit).await
     }
 
-    /// Search failure patterns in the healing journal.
     #[tool(
         name = "failure_patterns",
-        description = "Search failure patterns — shows tool errors, patterns, and context for self-healing analysis."
+        description = "Search failure patterns - shows tool errors, patterns, and context for self-healing analysis."
     )]
     async fn failure_patterns(&self, params: Parameters<FailurePatternsParams>) -> String {
         let Some(ref fj) = self.failure_journal else {

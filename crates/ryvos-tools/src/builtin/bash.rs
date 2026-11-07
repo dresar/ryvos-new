@@ -72,7 +72,6 @@ impl BashTool {
                 message: format!("Docker start failed: {}", e),
             })?;
 
-        // Wait with timeout
         let timeout = std::time::Duration::from_secs(config.timeout_secs);
         let wait_result = tokio::time::timeout(timeout, async {
             let mut stream = docker.wait_container::<String>(
@@ -83,7 +82,6 @@ impl BashTool {
         })
         .await;
 
-        // Collect logs
         let log_options = bollard::container::LogsOptions::<String> {
             stdout: true,
             stderr: true,
@@ -95,7 +93,6 @@ impl BashTool {
             output.push_str(&log.to_string());
         }
 
-        // Truncate if too long
         if output.len() > 30000 {
             output.truncate(30000);
             output.push_str("\n... (output truncated)");
@@ -105,7 +102,6 @@ impl BashTool {
             output = "(no output)".to_string();
         }
 
-        // Cleanup container
         let remove_options = bollard::container::RemoveContainerOptions {
             force: true,
             ..Default::default()
@@ -130,7 +126,6 @@ impl BashTool {
             }),
             Ok(None) => Ok(ToolResult::success(output)),
             Err(_) => {
-                // Timeout — kill the container
                 docker
                     .kill_container::<String>(&container.id, None)
                     .await
@@ -186,71 +181,13 @@ impl Tool for BashTool {
 
             debug!(command = %params.command, "Executing bash command");
 
-            // Check if sandbox is enabled
             if let Some(ref sandbox_config) = ctx.sandbox_config {
                 if sandbox_config.enabled && sandbox_config.mode == "docker" {
                     return Self::execute_sandboxed(&params.command, &ctx, sandbox_config).await;
                 }
             }
 
-            // Unsandboxed execution (existing behavior)
-            let timeout = std::time::Duration::from_secs(params.timeout);
-            let result = tokio::time::timeout(timeout, async {
-                tokio::process::Command::new("bash")
-                    .arg("-c")
-                    .arg(&params.command)
-                    .current_dir(&ctx.working_dir)
-                    .output()
-                    .await
-            })
-            .await;
-
-            match result {
-                Ok(Ok(output)) => {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-
-                    let mut content = String::new();
-                    if !stdout.is_empty() {
-                        content.push_str(&stdout);
-                    }
-                    if !stderr.is_empty() {
-                        if !content.is_empty() {
-                            content.push('\n');
-                        }
-                        content.push_str("STDERR:\n");
-                        content.push_str(&stderr);
-                    }
-
-                    // Truncate if too long
-                    if content.len() > 30000 {
-                        content.truncate(30000);
-                        content.push_str("\n... (output truncated)");
-                    }
-
-                    if content.is_empty() {
-                        content = "(no output)".to_string();
-                    }
-
-                    if output.status.success() {
-                        Ok(ToolResult::success(content))
-                    } else {
-                        let code = output.status.code().unwrap_or(-1);
-                        Ok(ToolResult::error(format!(
-                            "Exit code {}\n{}",
-                            code, content
-                        )))
-                    }
-                }
-                Ok(Err(e)) => Err(RyvosError::ToolExecution {
-                    tool: "bash".to_string(),
-                    message: e.to_string(),
-                }),
-                Err(_) => Err(RyvosError::ToolTimeout {
-                    tool: "bash".to_string(),
-                    timeout_secs: params.timeout,
-                }),
-            }
+            crate::sandbox::execute_in_sandbox(&ctx.working_dir, &params.command, params.timeout).await
         })
     }
 

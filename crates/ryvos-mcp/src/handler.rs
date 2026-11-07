@@ -139,8 +139,7 @@ impl ClientHandler for RyvosClientHandler {
         _ctx: RequestContext<RoleClient>,
     ) -> impl Future<Output = Result<CreateMessageResult, McpError>> + Send + '_ {
         async {
-            // Sampling is not yet implemented — return method_not_found
-            warn!(server = %self.server_name, "Server requested sampling (create_message) — not yet supported");
+            warn!(server = %self.server_name, "Server requested sampling (create_message) - not yet supported");
             Err(McpError::method_not_found::<CreateMessageRequestMethod>())
         }
     }

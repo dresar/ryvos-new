@@ -11,7 +11,7 @@ pub async fn query(audit: &Arc<AuditReader>, limit: usize) -> String {
                     .iter()
                     .map(|e| {
                         format!(
-                            "[{}] {} — {} | outcome: {}",
+                            "[{}] {} - {} | outcome: {}",
                             e.timestamp, e.tool_name, e.input_summary, e.outcome
                         )
                     })

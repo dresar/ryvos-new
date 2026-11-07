@@ -17,7 +17,7 @@ pub fn get(workspace: &Path, name: Option<&str>) -> String {
 pub fn write(workspace: &Path, note: &str) -> String {
     let memory_path = workspace.join("MEMORY.md");
     let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M UTC").to_string();
-    let entry = format!("\n- **{}** — {}\n", timestamp, note);
+    let entry = format!("\n- **{}** - {}\n", timestamp, note);
 
     match std::fs::OpenOptions::new()
         .create(true)
@@ -40,12 +40,11 @@ pub fn daily_log_write(workspace: &Path, entry: &str) -> String {
     let time = chrono::Utc::now().format("%H:%M").to_string();
     let log_path = workspace.join("memory").join(format!("{}.md", today));
 
-    // Ensure memory directory exists
     if let Some(parent) = log_path.parent() {
         std::fs::create_dir_all(parent).ok();
     }
 
-    let line = format!("- **{} UTC** — {}\n", time, entry);
+    let line = format!("- **{} UTC** - {}\n", time, entry);
 
     match std::fs::OpenOptions::new()
         .create(true)

@@ -387,11 +387,19 @@ impl LlmClient for OpenAiClient {
 
             if !response.status().is_success() {
                 let status = response.status();
+                let headers = response.headers().clone();
                 let body = response
                     .text()
                     .await
                     .unwrap_or_else(|_| "unknown".to_string());
-                return Err(RyvosError::LlmRequest(format!("HTTP {}: {}", status, body)));
+                let retry_info = if status.as_u16() == 429 {
+                    crate::retry::CircuitBreaker::parse_retry_after_headers(&headers)
+                        .map(|d| format!(" (retry-after: {}s)", d.as_secs()))
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                };
+                return Err(RyvosError::LlmRequest(format!("HTTP {}: {}{}", status, body, retry_info)));
             }
 
             let byte_stream = response.bytes_stream();

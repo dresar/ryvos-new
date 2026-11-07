@@ -234,11 +234,23 @@ pub enum StreamDelta {
     },
 }
 
-/// Result of a tool execution.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum TrustLevel {
+    #[default]
+    Trusted,
+    Untrusted,
+}
+
+pub fn wrap_untrusted_content(content: &str) -> String {
+    format!("<untrusted_content>\n{}\n</untrusted_content>", content)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ToolResult {
     pub content: String,
     pub is_error: bool,
+    #[serde(default)]
+    pub trust: TrustLevel,
 }
 
 impl ToolResult {
@@ -246,6 +258,7 @@ impl ToolResult {
         Self {
             content: content.into(),
             is_error: false,
+            trust: TrustLevel::Trusted,
         }
     }
 
@@ -253,11 +266,35 @@ impl ToolResult {
         Self {
             content: content.into(),
             is_error: true,
+            trust: TrustLevel::Trusted,
+        }
+    }
+
+    pub fn untrusted_success(content: impl Into<String>) -> Self {
+        let text = content.into();
+        Self {
+            content: wrap_untrusted_content(&text),
+            is_error: false,
+            trust: TrustLevel::Untrusted,
+        }
+    }
+
+    pub fn untrusted_error(content: impl Into<String>) -> Self {
+        let text = content.into();
+        Self {
+            content: wrap_untrusted_content(&text),
+            is_error: true,
+            trust: TrustLevel::Untrusted,
         }
     }
 }
 
-/// Tool definition for sending to the LLM.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ToolIndexEntry {
+    pub name: String,
+    pub summary: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDefinition {
     pub name: String,

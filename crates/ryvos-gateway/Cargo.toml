@@ -9,6 +9,7 @@ ryvos-agent.workspace = true
 ryvos-channels.workspace = true
 ryvos-tools.workspace = true
 ryvos-memory.workspace = true
+ryvos-mcp.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 futures.workspace = true

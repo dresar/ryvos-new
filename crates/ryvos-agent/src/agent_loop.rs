@@ -444,7 +444,6 @@ impl AgentRuntime {
                         }
                     }
 
-                    // Execute any memory tool calls from the flush
                     for tc in &flush_tool_calls {
                         if tc.name.starts_with("memory")
                             || tc.name.starts_with("daily_log")
@@ -453,8 +452,10 @@ impl AgentRuntime {
                             || tc.name == "bash"
                             || tc.name == "Bash"
                         {
-                            let input: serde_json::Value =
-                                serde_json::from_str(&tc.input_json).unwrap_or_default();
+                            let input: serde_json::Value = match serde_json::from_str::<serde_json::Value>(&tc.input_json) {
+                                Ok(val) if !val.is_null() => val,
+                                _ => continue,
+                            };
                             let _ = self.execute_tool(&tc.name, input, flush_ctx.clone()).await;
                         }
                     }
@@ -557,7 +558,15 @@ impl AgentRuntime {
                     return Err(RyvosError::Cancelled);
                 }
 
-                match delta? {
+                let delta = match delta {
+                    Ok(d) => d,
+                    Err(e) => {
+                        tool_calls.clear();
+                        return Err(RyvosError::LlmStream(format!("Stream error: {e}")));
+                    }
+                };
+
+                match delta {
                     StreamDelta::TextDelta(text) => {
                         self.event_bus.publish(AgentEvent::TextDelta(text.clone()));
                         text_content.push_str(&text);
@@ -774,14 +783,60 @@ impl AgentRuntime {
                 }
             }
 
-            // Thinking-only fallback: if the model produced reasoning but no
-            // visible content (common with Qwen 3.5, DeepSeek-R1 via OpenAI-compat),
-            // promote thinking to text so the user gets a response.
+            if !tool_calls.is_empty() && stop_reason.is_none() {
+                tool_calls.clear();
+                return Err(RyvosError::LlmStream(
+                    "LLM stream dropped before tool call completion".to_string(),
+                ));
+            }
+
+            let mut parsed_inputs = Vec::with_capacity(tool_calls.len());
+            for i in 0..tool_calls.len() {
+                let (name, input_json) = {
+                    let tc = &tool_calls[i];
+                    (tc.name.clone(), tc.input_json.clone())
+                };
+                let input_res: std::result::Result<serde_json::Value, _> = if input_json.trim().is_empty() {
+                    Ok(serde_json::json!({}))
+                } else {
+                    serde_json::from_str(&input_json)
+                };
+
+                let input = match input_res {
+                    Ok(val) if !val.is_null() => val,
+                    Ok(_) => {
+                        tool_calls.clear();
+                        return Err(RyvosError::LlmStream(format!(
+                            "Tool call {} produced null arguments",
+                            name
+                        )));
+                    }
+                    Err(e) => {
+                        if let Some(repaired) = repair_json_value(&input_json) {
+                            if repaired.is_null() {
+                                tool_calls.clear();
+                                return Err(RyvosError::LlmStream(format!(
+                                    "Tool call {} produced null arguments",
+                                    name
+                                )));
+                            }
+                            repaired
+                        } else {
+                            tool_calls.clear();
+                            return Err(RyvosError::LlmStream(format!(
+                                "Tool call {} arguments failed to parse: {}",
+                                name, e
+                            )));
+                        }
+                    }
+                };
+                parsed_inputs.push(input);
+            }
+
             if text_content.is_empty() && !thinking_content.is_empty() && tool_calls.is_empty() {
                 text_content = thinking_content.clone();
             }
 
-            // Build the assistant message
             let mut content_blocks = Vec::new();
             if !thinking_content.is_empty() {
                 content_blocks.push(ContentBlock::Thinking {
@@ -793,13 +848,11 @@ impl AgentRuntime {
                     text: text_content.clone(),
                 });
             }
-            for tc in &tool_calls {
-                let input: serde_json::Value =
-                    serde_json::from_str(&tc.input_json).unwrap_or(serde_json::Value::Null);
+            for (tc, input) in tool_calls.iter().zip(parsed_inputs.iter()) {
                 content_blocks.push(ContentBlock::ToolUse {
                     id: tc.id.clone(),
                     name: tc.name.clone(),
-                    input,
+                    input: input.clone(),
                 });
             }
 
@@ -983,13 +1036,6 @@ impl AgentRuntime {
 
             let tool_exec_start = Instant::now();
 
-            // Execute tool calls
-            // Publish all ToolStart events first (preserves ordering for TUI/gateway)
-            let parsed_inputs: Vec<serde_json::Value> = tool_calls
-                .iter()
-                .map(|tc| serde_json::from_str(&tc.input_json).unwrap_or(serde_json::Value::Null))
-                .collect();
-
             for (tc, input) in tool_calls.iter().zip(parsed_inputs.iter()) {
                 self.event_bus.publish(AgentEvent::ToolStart {
                     name: tc.name.clone(),
@@ -997,16 +1043,11 @@ impl AgentRuntime {
                 });
             }
 
-            // Collect (name, id, result) tuples — parallel or serial
-            // Note: when gate is present, parallel execution still works because
-            // SecurityGate.execute() is &self (shared ref). For approval-requiring
-            // tools, each call awaits independently.
             let tool_results: Vec<(String, String, ToolResult)> =
                 if self.config.agent.parallel_tools && tool_calls.len() > 1 {
-                    // Parallel execution
                     let futs: Vec<_> = tool_calls
                         .iter()
-                        .zip(parsed_inputs)
+                        .zip(parsed_inputs.clone())
                         .map(|(tc, input)| {
                             let gate = self.gate.clone();
                             let tools = Arc::clone(&self.tools);
@@ -1072,6 +1113,7 @@ impl AgentRuntime {
                 let compacted_result = ToolResult {
                     content: compacted_content.clone(),
                     is_error: tool_result.is_error,
+                    trust: tool_result.trust,
                 };
 
                 self.event_bus.publish(AgentEvent::ToolEnd {
@@ -1206,7 +1248,6 @@ impl AgentRuntime {
         Err(RyvosError::MaxTurnsExceeded(max_turns))
     }
 
-    /// Delegate execution to the Director orchestrator.
     fn run_with_director<'a>(
         &'a self,
         session_id: &'a SessionId,
@@ -1221,7 +1262,7 @@ impl AgentRuntime {
                 .agent
                 .director
                 .as_ref()
-                .expect("director config checked before call");
+                .ok_or_else(|| RyvosError::Config("Director config is required when director mode is enabled".into()))?;
 
             let director_model = director_cfg
                 .model
@@ -1242,7 +1283,6 @@ impl AgentRuntime {
                 evolution_count: 0,
             };
 
-            // Set the goal description to include the user message if it's generic
             if goal_obj.goal.description.is_empty() {
                 goal_obj.goal.description = user_message.to_string();
             }
@@ -1256,12 +1296,99 @@ impl AgentRuntime {
                 output_tokens: 0,
             });
 
-            if result.succeeded {
-                Ok(result.output)
-            } else {
-                // Return the best-effort output even on failure
-                Ok(result.output)
-            }
+            Ok(result.output)
         })
+    }
+}
+
+fn strip_trailing_commas(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    let mut in_string = false;
+    let mut escape = false;
+
+    while let Some(c) = chars.next() {
+        if in_string {
+            out.push(c);
+            if escape {
+                escape = false;
+            } else if c == '\\' {
+                escape = true;
+            } else if c == '"' {
+                in_string = false;
+            }
+        } else if c == '"' {
+            in_string = true;
+            out.push(c);
+        } else if c == ',' {
+            let mut is_trailing = false;
+            let mut iter_clone = chars.clone();
+            for next_c in iter_clone.by_ref() {
+                if next_c.is_whitespace() {
+                    continue;
+                }
+                if next_c == '}' || next_c == ']' {
+                    is_trailing = true;
+                }
+                break;
+            }
+            if !is_trailing {
+                out.push(c);
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn repair_json_value(s: &str) -> Option<serde_json::Value> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return Some(serde_json::json!({}));
+    }
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        return Some(v);
+    }
+    let stripped = strip_trailing_commas(trimmed);
+    let stripped_trimmed = stripped.trim().trim_end_matches(',').trim();
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(stripped_trimmed) {
+        return Some(v);
+    }
+    if stripped_trimmed.starts_with('{') && !stripped_trimmed.ends_with('}') {
+        let with_brace = format!("{}}}", stripped_trimmed);
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&with_brace) {
+            return Some(v);
+        }
+    }
+    if stripped_trimmed.starts_with('[') && !stripped_trimmed.ends_with(']') {
+        let with_bracket = format!("{}]", stripped_trimmed);
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&with_bracket) {
+            return Some(v);
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_repair_json_trailing_commas() {
+        let v1 = repair_json_value("{\"a\": 1,}").unwrap();
+        assert_eq!(v1["a"], 1);
+
+        let v2 = repair_json_value("[1, 2,]").unwrap();
+        assert_eq!(v2.as_array().unwrap().len(), 2);
+
+        let v3 = repair_json_value("{\"a\": [1, 2,], \"b\": {\"c\": 3,},}").unwrap();
+        assert_eq!(v3["b"]["c"], 3);
+
+        let v4 = repair_json_value("{\"msg\": \"foo,}\"}").unwrap();
+        assert_eq!(v4["msg"], "foo,}");
+
+        let v5 = repair_json_value("{\"count\": 99").unwrap();
+        assert_eq!(v5["count"], 99);
     }
 }

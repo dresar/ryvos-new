@@ -82,7 +82,7 @@ pub async fn list(viking: &Arc<VikingClient>, path: &str) -> String {
                     .map(|e| {
                         let icon = if e.is_directory { "📁" } else { "📄" };
                         format!(
-                            "{} {} — {}",
+                            "{} {} - {}",
                             icon,
                             e.path,
                             e.summary.as_deref().unwrap_or("")

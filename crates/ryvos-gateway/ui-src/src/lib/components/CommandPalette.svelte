@@ -1,37 +1,45 @@
 <script>
-  import { createEventDispatcher } from 'svelte';
+  let { visible = $bindable(false), onclose = () => {} } = $props();
 
-  export let visible = false;
-
-  const dispatch = createEventDispatcher();
-  let searchQuery = '';
-  let inputEl;
-  let selectedIndex = 0;
+  let searchQuery = $state('');
+  let inputEl = $state(null);
+  let selectedIndex = $state(0);
 
   const allPages = [
     { route: 'chat', label: 'Chat', desc: 'Send messages to agent' },
     { route: 'dashboard', label: 'Dashboard', desc: 'Overview and metrics' },
     { route: 'sessions', label: 'Sessions', desc: 'Active conversation sessions' },
     { route: 'runs', label: 'Runs', desc: 'Agent run history' },
+    { route: 'goals', label: 'Goals', desc: 'Director goal orchestration' },
     { route: 'costs', label: 'Costs', desc: 'Token usage and spending' },
     { route: 'channels', label: 'Channels', desc: 'Channel integrations status' },
+    { route: 'integrations', label: 'Integrations', desc: 'OAuth and app connections' },
     { route: 'audit', label: 'Audit Trail', desc: 'Tool execution audit log' },
     { route: 'viking', label: 'Viking Browser', desc: 'Browse Viking context database' },
+    { route: 'cron', label: 'Cron Jobs', desc: 'Scheduled recurring tasks' },
     { route: 'config', label: 'Config', desc: 'Edit configuration file' },
     { route: 'settings', label: 'Settings', desc: 'System info and config' },
   ];
 
-  $: filteredPages = searchQuery.trim()
-    ? allPages.filter(p =>
-        p.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.desc.toLowerCase().includes(searchQuery.toLowerCase()))
-    : allPages;
+  let filteredPages = $derived(
+    searchQuery.trim()
+      ? allPages.filter(p =>
+          p.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          p.desc.toLowerCase().includes(searchQuery.toLowerCase()))
+      : allPages
+  );
 
-  $: if (selectedIndex >= filteredPages.length) selectedIndex = Math.max(0, filteredPages.length - 1);
+  $effect(() => {
+    if (selectedIndex >= filteredPages.length) {
+      selectedIndex = Math.max(0, filteredPages.length - 1);
+    }
+  });
 
-  $: if (visible && inputEl) {
-    setTimeout(() => inputEl && inputEl.focus(), 50);
-  }
+  $effect(() => {
+    if (visible && inputEl) {
+      setTimeout(() => inputEl?.focus(), 50);
+    }
+  });
 
   function handleKeydown(e) {
     if (e.key === 'Escape') {
@@ -55,7 +63,8 @@
   function close() {
     searchQuery = '';
     selectedIndex = 0;
-    dispatch('close');
+    visible = false;
+    onclose();
   }
 
   function handleBackdropClick(e) {
@@ -64,43 +73,49 @@
 </script>
 
 {#if visible}
-  <!-- svelte-ignore a11y-click-events-have-key-events -->
-  <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div
-    class="fixed inset-0 bg-black/40 z-50 flex items-start justify-center pt-[20vh]"
-    on:click={handleBackdropClick}
-    on:keydown={handleKeydown}
+    role="dialog"
+    aria-modal="true"
+    tabindex="-1"
+    class="fixed inset-0 bg-[#0F1729]/40 backdrop-blur-sm z-50 flex items-start justify-center pt-[18vh] p-4"
+    onclick={handleBackdropClick}
+    onkeydown={handleKeydown}
   >
-    <div class="bg-white border-2 border-[#1A1A1A] shadow-brutal w-[520px] overflow-hidden">
-      <!-- Search input -->
-      <div class="flex items-center gap-3 px-4 py-3 border-b-2 border-[#1A1A1A]">
-        <svg class="w-5 h-5 text-[#9B9590] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <div class="bg-white border border-[#DCE4F3] rounded-2xl shadow-soft-float w-[520px] max-w-full overflow-hidden">
+      <div class="flex items-center gap-3 px-4 py-3.5 border-b border-[#DCE4F3]">
+        <svg class="w-5 h-5 text-[#778399] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
         </svg>
         <input
           bind:this={inputEl}
           bind:value={searchQuery}
-          placeholder="Search pages..."
-          class="flex-1 bg-transparent text-[#1A1A1A] text-sm outline-none placeholder:text-[#9B9590]"
+          placeholder="Search pages and features..."
+          class="flex-1 bg-transparent text-[#1B2943] text-sm outline-none placeholder:text-[#778399]"
         />
-        <kbd class="text-[0.65rem] text-[#6B6560] bg-[#F7F4F0] px-1.5 py-0.5 border-2 border-[#1A1A1A]">ESC</kbd>
+        <kbd class="text-[10px] text-[#64748B] bg-[#EDF1FC] px-2 py-0.5 rounded-md border border-[#DCE4F3] font-mono">ESC</kbd>
       </div>
 
-      <!-- Results -->
-      <div class="max-h-72 overflow-y-auto py-2">
+      <div class="max-h-72 overflow-y-auto p-2 space-y-1">
         {#each filteredPages as page, i}
           <button
-            class="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors duration-100
-              {i === selectedIndex ? 'bg-[#FEF3EC] text-[#F07030]' : 'text-[#1A1A1A] hover:bg-[#F7F4F0]'}"
-            on:click={() => navigate(page)}
-            on:mouseenter={() => selectedIndex = i}
+            type="button"
+            class="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-left transition-colors duration-150 {i === selectedIndex ? 'bg-[#E8EEFF] text-[#2448CB]' : 'text-[#1B2943] hover:bg-[#F4F6FF]'}"
+            onclick={() => navigate(page)}
+            onmouseenter={() => selectedIndex = i}
           >
-            <span class="font-medium text-sm">{page.label}</span>
-            <span class="text-xs text-[#9B9590]">{page.desc}</span>
+            <div>
+              <span class="font-semibold text-sm block">{page.label}</span>
+              <span class="text-xs text-[#778399]">{page.desc}</span>
+            </div>
+            {#if i === selectedIndex}
+              <svg class="w-4 h-4 text-[#2448CB]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="9 18 15 12 9 6"/>
+              </svg>
+            {/if}
           </button>
         {/each}
         {#if filteredPages.length === 0}
-          <p class="text-[#9B9590] text-sm text-center py-4">No matching pages</p>
+          <div class="py-6 text-center text-xs text-[#778399]">No pages matching "{searchQuery}"</div>
         {/if}
       </div>
     </div>

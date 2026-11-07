@@ -17,7 +17,6 @@ use crate::connection;
 use crate::middleware::Authenticated;
 use crate::state::AppState;
 
-// GET /api/health — no auth required
 pub async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "status": "ok",
@@ -25,7 +24,6 @@ pub async fn health() -> Json<serde_json::Value> {
     }))
 }
 
-// GET /api/sessions — requires Viewer+
 pub async fn list_sessions(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -35,7 +33,6 @@ pub async fn list_sessions(
     }
     let keys = state.session_mgr.list();
 
-    // If session_meta is available, return rich metadata
     if let Some(ref meta_store) = state.session_meta {
         let sessions: Vec<serde_json::Value> = keys
             .iter()
@@ -71,7 +68,6 @@ fn default_limit() -> usize {
     50
 }
 
-// GET /api/sessions/:id/history?limit=50 — requires Viewer+
 pub async fn session_history(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -82,7 +78,6 @@ pub async fn session_history(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    // Resolve session key → actual session_id via meta store
     let resolved_id = if let Some(ref meta_store) = state.session_meta {
         meta_store
             .get(&id)
@@ -117,7 +112,6 @@ pub struct SendMessageBody {
     pub message: String,
 }
 
-// POST /api/sessions/:id/messages — requires Operator+
 pub async fn send_message(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -145,7 +139,6 @@ pub async fn send_message(
     }
 }
 
-// ── Monitoring dashboard endpoints ─────────────────────────────
 
 #[derive(Deserialize)]
 pub struct RunsQuery {
@@ -173,7 +166,6 @@ fn default_group_by() -> String {
     "model".to_string()
 }
 
-// GET /api/metrics — overview metrics for the dashboard
 pub async fn metrics(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -189,7 +181,6 @@ pub async fn metrics(
         if let Some(ref cost_store) = state.cost_store {
             let (_runs, _) = cost_store.run_history(0, 0).unwrap_or((vec![], 0));
             let monthly = cost_store.monthly_spend_cents().unwrap_or(0);
-            // Sum tokens from run history total count
             let total_count = cost_store.run_history(1, 0).map(|(_, t)| t).unwrap_or(0);
             (total_count, 0u64, monthly)
         } else {
@@ -219,7 +210,6 @@ pub async fn metrics(
     })))
 }
 
-// GET /api/runs — paginated run history
 pub async fn runs(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -250,7 +240,6 @@ pub async fn runs(
     })))
 }
 
-// GET /api/costs — cost summary with breakdown
 pub async fn costs(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -311,7 +300,6 @@ pub async fn costs(
     })))
 }
 
-// ── Webhook endpoint ────────────────────────────────────────────
 
 #[derive(Deserialize)]
 pub struct WebhookPayload {
@@ -326,14 +314,11 @@ pub struct WebhookPayload {
     pub callback_url: Option<String>,
 }
 
-/// POST /api/hooks/wake — webhook endpoint for external triggers.
-/// Authenticated via Bearer token from gateway.webhooks.token config.
 pub async fn webhook_wake(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
     Json(body): Json<WebhookPayload>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    // Validate webhook token
     let webhook_config = state
         .config
         .webhooks
@@ -370,7 +355,6 @@ pub async fn webhook_wake(
 
     match state.runtime.run(&session_id, &body.prompt).await {
         Ok(response) => {
-            // Fire callback if provided
             if let Some(url) = callback_url.clone() {
                 let client = reqwest::Client::new();
                 let md = metadata.clone();
@@ -394,7 +378,6 @@ pub async fn webhook_wake(
             })))
         }
         Err(e) => {
-            // Fire callback with error
             if let Some(url) = callback_url {
                 let client = reqwest::Client::new();
                 let cb_body = serde_json::json!({
@@ -417,7 +400,6 @@ pub async fn webhook_wake(
     }
 }
 
-// ── WhatsApp webhook endpoints ───────────────────────────────
 
 #[derive(Deserialize)]
 pub struct WhatsAppVerifyQuery {
@@ -429,7 +411,6 @@ pub struct WhatsAppVerifyQuery {
     pub challenge: String,
 }
 
-/// GET /api/whatsapp/webhook — Meta verification handshake.
 pub async fn whatsapp_verify(
     State(state): State<Arc<AppState>>,
     Query(q): Query<WhatsAppVerifyQuery>,
@@ -444,7 +425,6 @@ pub async fn whatsapp_verify(
         .ok_or(StatusCode::FORBIDDEN)
 }
 
-/// POST /api/whatsapp/webhook — Incoming messages from Meta.
 pub async fn whatsapp_incoming(
     State(state): State<Arc<AppState>>,
     Json(body): Json<serde_json::Value>,
@@ -455,7 +435,6 @@ pub async fn whatsapp_incoming(
     StatusCode::OK
 }
 
-// GET /ws — WebSocket upgrade, requires auth
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
     Authenticated(_auth_result): Authenticated,
@@ -478,7 +457,6 @@ async fn handle_ws(socket: WebSocket, state: Arc<AppState>) {
     debug!("WebSocket client disconnected");
 }
 
-// ── Audit Trail API ─────────────────────────────────────────────
 
 #[derive(Deserialize)]
 pub struct AuditQuery {
@@ -494,7 +472,6 @@ fn default_audit_limit() -> usize {
     50
 }
 
-// GET /api/audit — paginated audit entries
 pub async fn audit_entries(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -517,7 +494,6 @@ pub async fn audit_entries(
     Ok(Json(serde_json::json!({ "entries": entries })))
 }
 
-// GET /api/audit/stats — summary stats
 pub async fn audit_stats(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -535,7 +511,6 @@ pub async fn audit_stats(
         .map(|(tool, count)| serde_json::json!({"tool": tool, "count": count}))
         .collect();
 
-    // Get Viking entry count if available
     let viking_entries = if let Some(ref vc) = state.viking_client {
         vc.list_directory("viking://")
             .await
@@ -553,7 +528,6 @@ pub async fn audit_stats(
     })))
 }
 
-// ── Viking Memory Browser API ───────────────────────────────────
 
 #[derive(Deserialize)]
 pub struct VikingListQuery {
@@ -589,7 +563,6 @@ fn default_viking_search_limit() -> usize {
     10
 }
 
-// GET /api/viking/list — directory listing
 pub async fn viking_list(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -605,7 +578,6 @@ pub async fn viking_list(
     }
 }
 
-// GET /api/viking/read — read a path
 pub async fn viking_read(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -626,7 +598,6 @@ pub async fn viking_read(
     }
 }
 
-// GET /api/viking/search — search memories
 pub async fn viking_search(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -645,9 +616,7 @@ pub async fn viking_search(
     }
 }
 
-// ── Config Editor API ───────────────────────────────────────────
 
-// GET /api/config — read current config (Admin only)
 pub async fn get_config(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -665,7 +634,6 @@ pub async fn get_config(
     }
 }
 
-// PUT /api/config — write config (Admin only)
 pub async fn put_config(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -677,7 +645,6 @@ pub async fn put_config(
     let path = state.config_path.as_ref().ok_or(StatusCode::NOT_FOUND)?;
     let content = body["content"].as_str().ok_or(StatusCode::BAD_REQUEST)?;
 
-    // Validate TOML before writing
     if toml::from_str::<ryvos_core::config::AppConfig>(content).is_err() {
         return Ok(Json(serde_json::json!({ "error": "Invalid TOML config" })));
     }
@@ -688,9 +655,7 @@ pub async fn put_config(
     }
 }
 
-// ── Channel Status API ──────────────────────────────────────────
 
-// GET /api/channels — list configured channels with status
 pub async fn channels_status(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -701,7 +666,6 @@ pub async fn channels_status(
 
     let mut channels = Vec::new();
 
-    // Check each known channel type against configured state
     let has_whatsapp = state.whatsapp_handle.is_some();
     let session_list = state.session_mgr.list();
 
@@ -719,9 +683,7 @@ pub async fn channels_status(
     Ok(Json(serde_json::json!({ "channels": channels })))
 }
 
-// ── Approvals REST API ──────────────────────────────────────────
 
-// GET /api/approvals — list pending approvals
 pub async fn list_approvals(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -733,7 +695,6 @@ pub async fn list_approvals(
     Ok(Json(serde_json::json!({ "approvals": pending })))
 }
 
-// POST /api/approvals/:id/approve
 pub async fn approve_request(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -749,7 +710,6 @@ pub async fn approve_request(
     Ok(Json(serde_json::json!({ "approved": found })))
 }
 
-// POST /api/approvals/:id/deny
 pub async fn deny_request(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -770,9 +730,7 @@ pub async fn deny_request(
     Ok(Json(serde_json::json!({ "denied": found })))
 }
 
-// ── Cron Management API ─────────────────────────────────────────
 
-// GET /api/cron — list cron jobs from config
 pub async fn list_cron(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -795,7 +753,6 @@ pub async fn list_cron(
     Ok(Json(serde_json::json!({ "jobs": jobs })))
 }
 
-// POST /api/cron — add a cron job
 #[derive(Deserialize)]
 pub struct AddCronBody {
     name: String,
@@ -818,7 +775,6 @@ pub async fn add_cron(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // Append new job as TOML
     content.push_str("\n\n[[cron.jobs]]\n");
     content.push_str(&format!("name = {:?}\n", body.name));
     content.push_str(&format!("schedule = {:?}\n", body.schedule));
@@ -830,7 +786,6 @@ pub async fn add_cron(
         content.push_str(&format!("goal = {:?}\n", goal));
     }
 
-    // Validate
     if toml::from_str::<ryvos_core::config::AppConfig>(&content).is_err() {
         return Ok(Json(
             serde_json::json!({ "error": "Invalid config after adding job" }),
@@ -845,7 +800,6 @@ pub async fn add_cron(
     ))
 }
 
-// DELETE /api/cron/:name — remove a cron job
 pub async fn delete_cron(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -862,7 +816,6 @@ pub async fn delete_cron(
     let mut config: toml::Value =
         toml::from_str(&content).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // Remove matching job
     if let Some(cron) = config.get_mut("cron") {
         if let Some(jobs) = cron.get_mut("jobs") {
             if let Some(arr) = jobs.as_array_mut() {
@@ -881,9 +834,7 @@ pub async fn delete_cron(
     ))
 }
 
-// ── Budget API ──────────────────────────────────────────────────
 
-// GET /api/budget — current budget config
 pub async fn get_budget(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -903,7 +854,6 @@ pub async fn get_budget(
     }
 }
 
-// PUT /api/budget — update budget in config
 #[derive(Deserialize)]
 pub struct UpdateBudgetBody {
     monthly_budget_cents: Option<u64>,
@@ -926,7 +876,6 @@ pub async fn put_budget(
     let mut config: toml::Value =
         toml::from_str(&content).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // Ensure [budget] section exists
     let budget = config
         .as_table_mut()
         .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
@@ -955,9 +904,7 @@ pub async fn put_budget(
     ))
 }
 
-// ── Model API ───────────────────────────────────────────────────
 
-// GET /api/model — current model config (api_key redacted)
 pub async fn get_model(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -977,7 +924,6 @@ pub async fn get_model(
         .cloned()
         .unwrap_or(toml::Value::Table(toml::map::Map::new()));
 
-    // Redact sensitive fields
     if let Some(table) = model.as_table_mut() {
         table.remove("api_key");
         table.remove("token");
@@ -986,7 +932,6 @@ pub async fn get_model(
     Ok(Json(serde_json::json!({ "model": model })))
 }
 
-// GET /api/models/available — model catalog per provider
 #[derive(Deserialize)]
 pub struct ModelsQuery {
     #[serde(default)]
@@ -1002,7 +947,6 @@ pub async fn list_models(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    // Read current provider from config if not specified
     let path = state.config_path.as_ref().ok_or(StatusCode::NOT_FOUND)?;
     let content = tokio::fs::read_to_string(path)
         .await
@@ -1058,7 +1002,6 @@ pub async fn list_models(
     })))
 }
 
-// PUT /api/model — update model settings in config
 #[derive(Deserialize)]
 pub struct UpdateModelBody {
     model_id: Option<String>,
@@ -1108,7 +1051,6 @@ pub async fn put_model(
     ))
 }
 
-// ── Integrations API ────────────────────────────────────────────
 
 fn integration_apps() -> Vec<serde_json::Value> {
     vec![
@@ -1123,7 +1065,6 @@ fn integration_apps() -> Vec<serde_json::Value> {
     ]
 }
 
-// GET /api/integrations
 pub async fn list_integrations(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -1163,7 +1104,6 @@ pub async fn list_integrations(
     Ok(Json(serde_json::json!({ "apps": apps })))
 }
 
-// POST /api/integrations/:app/connect
 pub async fn connect_integration(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -1211,7 +1151,6 @@ pub async fn connect_integration(
     ))
 }
 
-// GET /api/integrations/callback
 pub async fn integration_callback(
     State(state): State<Arc<AppState>>,
     Query(params): Query<std::collections::HashMap<String, String>>,
@@ -1255,7 +1194,6 @@ pub async fn integration_callback(
     }
 }
 
-// DELETE /api/integrations/:app
 pub async fn disconnect_integration(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -1276,7 +1214,6 @@ pub async fn disconnect_integration(
     }
 }
 
-// ── Goals / Director endpoints ──────────────────────────────
 
 #[derive(Deserialize)]
 pub struct RunGoalBody {
@@ -1287,8 +1224,6 @@ pub struct RunGoalBody {
     pub channel: Option<String>,
 }
 
-/// POST /api/goals/run — Fire a goal via Director orchestration.
-/// Returns immediately with session_id; events stream via WebSocket.
 pub async fn run_goal(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -1306,7 +1241,6 @@ pub async fn run_goal(
     let session_id = SessionId::from_string(&format!("goal:{}", now.format("%Y%m%d-%H%M%S")));
     let prompt = body.prompt.unwrap_or_else(|| body.description.clone());
 
-    // Construct Goal with LlmJudge criterion
     let goal = ryvos_core::goal::Goal {
         description: body.description.clone(),
         success_criteria: vec![ryvos_core::goal::SuccessCriterion {
@@ -1335,12 +1269,10 @@ pub async fn run_goal(
     let sid = session_id.clone();
     let goal_desc = body.description.clone();
 
-    // Spawn non-blocking — events stream via WebSocket
     tokio::spawn(async move {
         match runtime.run_with_goal(&sid, &prompt, Some(&goal)).await {
             Ok(response) => {
                 info!(session = %sid, "Goal completed");
-                // Route to channel if requested
                 if let Some(ch) = channel {
                     event_bus.publish(ryvos_core::types::AgentEvent::CronJobComplete {
                         name: format!("goal: {}", goal_desc),
@@ -1362,7 +1294,6 @@ pub async fn run_goal(
     })))
 }
 
-/// GET /api/goals/history — List past goal/Director runs.
 pub async fn goal_history(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -1376,7 +1307,6 @@ pub async fn goal_history(
             .run_history(100, 0)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        // Filter for goal: and cron: sessions (Director-relevant)
         let goal_runs: Vec<_> = runs
             .into_iter()
             .filter(|r| {
@@ -1393,9 +1323,7 @@ pub async fn goal_history(
     }
 }
 
-// ── Skills API ──────────────────────────────────────────────────
 
-// GET /api/skills — list installed skills
 pub async fn list_skills(
     Authenticated(auth_result): Authenticated,
     State(_state): State<Arc<AppState>>,
@@ -1435,9 +1363,7 @@ pub async fn list_skills(
     Ok(Json(serde_json::json!({ "skills": skills })))
 }
 
-// ── Heartbeat History API ───────────────────────────────────────
 
-// GET /api/heartbeat/history — recent heartbeat events from audit trail
 pub async fn heartbeat_history(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -1449,7 +1375,6 @@ pub async fn heartbeat_history(
 
     let trail = state.audit_trail.as_ref().ok_or(StatusCode::NOT_FOUND)?;
 
-    // Heartbeat sessions are prefixed with "heartbeat:"
     let all_entries = trail
         .recent_entries("", q.limit.min(100))
         .await
@@ -1472,9 +1397,7 @@ pub async fn heartbeat_history(
     Ok(Json(serde_json::json!({ "events": heartbeat_events })))
 }
 
-// ── Data Audit API ──────────────────────────────────────────────
 
-// GET /api/safety/lessons?search=&limit=20 — safety lesson browser
 pub async fn safety_lessons(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -1539,7 +1462,6 @@ pub async fn safety_lessons(
     }
 }
 
-// GET /api/decisions?session_id=&limit=20 — decision audit browser
 pub async fn list_decisions(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -1605,7 +1527,6 @@ pub async fn list_decisions(
     }
 }
 
-// GET /api/failures?pattern=&tool=&limit=20 — failure journal browser
 pub async fn list_failures(
     Authenticated(auth_result): Authenticated,
     State(state): State<Arc<AppState>>,
@@ -1650,4 +1571,159 @@ fn dirs_home() -> std::path::PathBuf {
     std::env::var("HOME")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| std::path::PathBuf::from("/tmp"))
+}
+
+#[derive(Deserialize, Default)]
+pub struct MemorySearchQuery {
+    pub query: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Deserialize, Default)]
+pub struct MemoryListQuery {
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+}
+
+async fn find_supermemory_server(manager: &ryvos_mcp::McpClientManager) -> Option<String> {
+    let servers = manager.connected_servers().await;
+    if servers.contains(&"supermemory".to_string()) {
+        return Some("supermemory".to_string());
+    }
+    for server in &servers {
+        if server.to_lowercase().contains("supermemory") {
+            return Some(server.clone());
+        }
+    }
+    servers.into_iter().next()
+}
+
+pub async fn memory_search_get(
+    Authenticated(auth_result): Authenticated,
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<MemorySearchQuery>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !auth::has_viewer_access(&auth_result.role) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let manager = state.mcp_manager.as_ref().ok_or(StatusCode::NOT_FOUND)?;
+    let mut args = serde_json::Map::new();
+    if let Some(query) = q.query {
+        args.insert("query".to_string(), serde_json::Value::String(query));
+    }
+    if let Some(limit) = q.limit {
+        args.insert("limit".to_string(), serde_json::json!(limit));
+    }
+    let server_name = find_supermemory_server(manager)
+        .await
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    match manager
+        .call_tool(&server_name, "search_memory", Some(args))
+        .await
+    {
+        Ok(out) => {
+            let val = serde_json::from_str::<serde_json::Value>(&out)
+                .unwrap_or_else(|_| serde_json::json!({ "result": out }));
+            Ok(Json(val))
+        }
+        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
+pub async fn memory_search_post(
+    Authenticated(auth_result): Authenticated,
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !auth::has_viewer_access(&auth_result.role) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let manager = state.mcp_manager.as_ref().ok_or(StatusCode::NOT_FOUND)?;
+    let mut args = serde_json::Map::new();
+    if let Some(obj) = body.as_object() {
+        for (k, v) in obj {
+            args.insert(k.clone(), v.clone());
+        }
+    } else if let Some(text) = body.as_str() {
+        args.insert("query".to_string(), serde_json::Value::String(text.to_string()));
+    }
+    let server_name = find_supermemory_server(manager)
+        .await
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    match manager
+        .call_tool(&server_name, "search_memory", Some(args))
+        .await
+    {
+        Ok(out) => {
+            let val = serde_json::from_str::<serde_json::Value>(&out)
+                .unwrap_or_else(|_| serde_json::json!({ "result": out }));
+            Ok(Json(val))
+        }
+        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
+pub async fn memory_list(
+    Authenticated(auth_result): Authenticated,
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<MemoryListQuery>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !auth::has_viewer_access(&auth_result.role) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let manager = state.mcp_manager.as_ref().ok_or(StatusCode::NOT_FOUND)?;
+    let mut args = serde_json::Map::new();
+    if let Some(limit) = q.limit {
+        args.insert("limit".to_string(), serde_json::json!(limit));
+    }
+    if let Some(offset) = q.offset {
+        args.insert("offset".to_string(), serde_json::json!(offset));
+    }
+    let server_name = find_supermemory_server(manager)
+        .await
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    match manager
+        .call_tool(&server_name, "list_memories", Some(args))
+        .await
+    {
+        Ok(out) => {
+            let val = serde_json::from_str::<serde_json::Value>(&out)
+                .unwrap_or_else(|_| serde_json::json!({ "result": out }));
+            Ok(Json(val))
+        }
+        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
+pub async fn memory_add(
+    Authenticated(auth_result): Authenticated,
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !auth::has_operator_access(&auth_result.role) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let manager = state.mcp_manager.as_ref().ok_or(StatusCode::NOT_FOUND)?;
+    let mut args = serde_json::Map::new();
+    if let Some(obj) = body.as_object() {
+        for (k, v) in obj {
+            args.insert(k.clone(), v.clone());
+        }
+    } else if let Some(text) = body.as_str() {
+        args.insert("content".to_string(), serde_json::Value::String(text.to_string()));
+    }
+    let server_name = find_supermemory_server(manager)
+        .await
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    match manager
+        .call_tool(&server_name, "add_memory", Some(args))
+        .await
+    {
+        Ok(out) => {
+            let val = serde_json::from_str::<serde_json::Value>(&out)
+                .unwrap_or_else(|_| serde_json::json!({ "result": out }));
+            Ok(Json(val))
+        }
+        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
+    }
 }

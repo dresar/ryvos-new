@@ -7,13 +7,10 @@ use tracing::debug;
 
 use ryvos_core::error::{Result, RyvosError};
 
-/// Persistent session metadata store (survives daemon restarts).
-/// Thread-safe via Mutex wrapping the connection.
 pub struct SessionMetaStore {
     conn: Mutex<Connection>,
 }
 
-/// A row from the session_meta table.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SessionMeta {
     pub session_key: String,
@@ -28,9 +25,9 @@ pub struct SessionMeta {
 }
 
 impl SessionMetaStore {
-    /// Open (or create) the session meta database.
     pub fn open(path: &Path) -> Result<Self> {
         let conn = Connection::open(path).map_err(|e| RyvosError::Database(e.to_string()))?;
+        crate::apply_lean_pragmas(&conn).map_err(|e| RyvosError::Database(e.to_string()))?;
 
         conn.execute_batch(
             "

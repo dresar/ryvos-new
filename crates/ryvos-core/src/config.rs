@@ -870,14 +870,12 @@ pub enum McpTransport {
     },
 }
 
-/// Project-level MCP server config from .mcp.json (OpenClaw-compatible).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpJsonConfig {
     #[serde(rename = "mcpServers", default)]
     pub mcp_servers: HashMap<String, McpJsonServerEntry>,
 }
 
-/// A single entry in .mcp.json.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpJsonServerEntry {
     #[serde(default)]
@@ -888,10 +886,11 @@ pub struct McpJsonServerEntry {
     pub env: HashMap<String, String>,
     #[serde(default)]
     pub url: Option<String>,
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
 }
 
 impl McpJsonServerEntry {
-    /// Convert to McpServerConfig.
     pub fn to_server_config(&self) -> Option<McpServerConfig> {
         let transport = if let Some(ref cmd) = self.command {
             McpTransport::Stdio {
@@ -910,7 +909,7 @@ impl McpJsonServerEntry {
             allow_sampling: false,
             timeout_secs: default_mcp_timeout(),
             tier_override: None,
-            headers: HashMap::new(),
+            headers: self.headers.clone(),
         })
     }
 }
@@ -1403,5 +1402,33 @@ cli_permission_mode = "dontAsk"
         let config: AppConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(config.model.cli_allowed_tools, vec!["Read", "Glob", "Grep"]);
         assert_eq!(config.model.cli_permission_mode.as_deref(), Some("dontAsk"));
+    }
+
+    #[test]
+    fn test_mcp_json_server_entry_header_forwarding() {
+        let json_str = r#"{
+            "mcpServers": {
+                "supermemory": {
+                    "url": "https://mcp.supermemory.ai/mcp",
+                    "headers": {
+                        "Authorization": "Bearer sm_test_token_123"
+                    }
+                }
+            }
+        }"#;
+        let parsed: McpJsonConfig = serde_json::from_str(json_str).unwrap();
+        let entry = parsed.mcp_servers.get("supermemory").unwrap();
+        assert_eq!(
+            entry.headers.get("Authorization").map(|s| s.as_str()),
+            Some("Bearer sm_test_token_123")
+        );
+        let server_config = entry.to_server_config().unwrap();
+        assert_eq!(
+            server_config
+                .headers
+                .get("Authorization")
+                .map(|s| s.as_str()),
+            Some("Bearer sm_test_token_123")
+        );
     }
 }

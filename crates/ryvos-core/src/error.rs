@@ -2,7 +2,6 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum RyvosError {
-    // LLM errors
     #[error("LLM request failed: {0}")]
     LlmRequest(String),
 
@@ -15,7 +14,6 @@ pub enum RyvosError {
     #[error("LLM response parse error: {0}")]
     LlmParse(String),
 
-    // Tool errors
     #[error("Tool not found: {0}")]
     ToolNotFound(String),
 
@@ -28,7 +26,6 @@ pub enum RyvosError {
     #[error("Tool input validation failed: {0}")]
     ToolValidation(String),
 
-    // Agent errors
     #[error("Agent exceeded max turns ({0})")]
     MaxTurnsExceeded(usize),
 
@@ -38,56 +35,74 @@ pub enum RyvosError {
     #[error("Agent cancelled")]
     Cancelled,
 
-    // Config errors
     #[error("Config error: {0}")]
     Config(String),
 
     #[error("Config file not found: {0}")]
     ConfigNotFound(String),
 
-    // Storage errors
     #[error("Database error: {0}")]
     Database(String),
 
-    // Channel errors
     #[error("Channel error: {channel}: {message}")]
     Channel { channel: String, message: String },
 
-    // Gateway errors
     #[error("Gateway error: {0}")]
     Gateway(String),
 
-    // Security errors
-    /// **Deprecated:** Tools are no longer blocked by policy. Kept for compat.
     #[error("Tool blocked by security policy: {tool} (tier {tier})")]
     ToolBlocked { tool: String, tier: String },
 
-    /// User explicitly denied a soft checkpoint.
     #[error("Approval denied for tool {tool}: {reason}")]
     ApprovalDenied { tool: String, reason: String },
 
-    /// Soft checkpoint timed out (tool still proceeds).
     #[error("Approval timeout for tool: {tool}")]
     ApprovalTimeout { tool: String },
 
     #[error("Security violation: {0}")]
     SecurityViolation(String),
 
-    // Budget errors
     #[error("Budget exceeded: spent {spent_cents} cents of {budget_cents} cent budget")]
     BudgetExceeded { spent_cents: u64, budget_cents: u64 },
 
-    // MCP errors
     #[error("MCP error: {0}")]
     Mcp(String),
 
-    // I/O errors
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
-    // JSON errors
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+}
+
+impl RyvosError {
+    pub fn is_rate_limited(&self) -> bool {
+        match self {
+            Self::LlmRequest(msg) => {
+                let lower = msg.to_lowercase();
+                lower.contains("429") || lower.contains("rate limit")
+            }
+            _ => false,
+        }
+    }
+
+    pub fn is_transient(&self) -> bool {
+        match self {
+            Self::LlmRequest(msg) => {
+                let lower = msg.to_lowercase();
+                lower.contains("429")
+                    || lower.contains("500")
+                    || lower.contains("502")
+                    || lower.contains("503")
+                    || lower.contains("504")
+                    || lower.contains("timeout")
+                    || lower.contains("connection")
+                    || lower.contains("rate limit")
+            }
+            Self::LlmStream(_) => true,
+            _ => false,
+        }
+    }
 }
 
 pub type Result<T> = std::result::Result<T, RyvosError>;

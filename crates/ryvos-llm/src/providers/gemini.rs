@@ -11,7 +11,6 @@ use ryvos_core::types::*;
 
 use crate::streaming::{SseEvent, SseStream};
 
-/// Google Gemini native API client.
 pub struct GeminiClient {
     http: Client,
 }
@@ -29,8 +28,6 @@ impl Default for GeminiClient {
         Self::new()
     }
 }
-
-// ── Request types ────────────────────────────────────────────────
 
 #[derive(Serialize)]
 struct GeminiRequest {
@@ -98,8 +95,6 @@ struct GenerationConfig {
     temperature: Option<f32>,
 }
 
-// ── Response types ───────────────────────────────────────────────
-
 #[derive(Deserialize, Debug)]
 struct GeminiStreamChunk {
     #[serde(default)]
@@ -122,8 +117,6 @@ struct GeminiUsage {
     #[serde(default, rename = "candidatesTokenCount")]
     candidates_token_count: u64,
 }
-
-// ── Conversion ───────────────────────────────────────────────────
 
 fn convert_messages(messages: Vec<ChatMessage>) -> (Option<GeminiContent>, Vec<GeminiContent>) {
     let mut system = None;
@@ -194,7 +187,6 @@ fn convert_messages(messages: Vec<ChatMessage>) -> (Option<GeminiContent>, Vec<G
                 }
             }
             Role::Tool => {
-                // Tool results sent as user messages with function responses
                 let mut parts = Vec::new();
                 for block in &msg.content {
                     if let ContentBlock::ToolResult {
@@ -224,57 +216,71 @@ fn convert_messages(messages: Vec<ChatMessage>) -> (Option<GeminiContent>, Vec<G
     (system, contents)
 }
 
-fn parse_gemini_chunk(event: SseEvent) -> Option<Result<StreamDelta>> {
+fn parse_gemini_chunk(event: SseEvent) -> Vec<Result<StreamDelta>> {
     if event.data.trim() == "[DONE]" {
-        return None;
+        return Vec::new();
     }
 
     let parsed: std::result::Result<GeminiStreamChunk, _> = serde_json::from_str(&event.data);
     match parsed {
         Ok(chunk) => {
+            let mut deltas = Vec::new();
+
             if let Some(usage) = chunk.usage_metadata {
-                return Some(Ok(StreamDelta::Usage {
+                deltas.push(Ok(StreamDelta::Usage {
                     input_tokens: usage.prompt_token_count,
                     output_tokens: usage.candidates_token_count,
                 }));
             }
 
-            let candidate = chunk.candidates.into_iter().next()?;
+            if let Some(candidate) = chunk.candidates.into_iter().next() {
+                if let Some(reason) = candidate.finish_reason {
+                    let stop = match reason.as_str() {
+                        "STOP" => StopReason::EndTurn,
+                        "MAX_TOKENS" => StopReason::MaxTokens,
+                        _ => StopReason::EndTurn,
+                    };
+                    deltas.push(Ok(StreamDelta::Stop(stop)));
+                }
 
-            if let Some(reason) = candidate.finish_reason {
-                let stop = match reason.as_str() {
-                    "STOP" => StopReason::EndTurn,
-                    "MAX_TOKENS" => StopReason::MaxTokens,
-                    _ => StopReason::EndTurn,
-                };
-                return Some(Ok(StreamDelta::Stop(stop)));
-            }
-
-            if let Some(content) = candidate.content {
-                for (i, part) in content.parts.into_iter().enumerate() {
-                    match part {
-                        GeminiPart::Text { text } => {
-                            if !text.is_empty() {
-                                return Some(Ok(StreamDelta::TextDelta(text)));
+                if let Some(content) = candidate.content {
+                    for (i, part) in content.parts.into_iter().enumerate() {
+                        match part {
+                            GeminiPart::Text { text } => {
+                                if !text.is_empty() {
+                                    deltas.push(Ok(StreamDelta::TextDelta(text)));
+                                }
                             }
+                            GeminiPart::FunctionCall { function_call } => {
+                                let call_id = format!("call_{}", function_call.name);
+                                deltas.push(Ok(StreamDelta::ToolUseStart {
+                                    index: i,
+                                    id: call_id,
+                                    name: function_call.name,
+                                }));
+                                let args_str = if function_call.args.is_string() {
+                                    function_call.args.as_str().unwrap_or("").to_string()
+                                } else {
+                                    function_call.args.to_string()
+                                };
+                                if !args_str.is_empty() {
+                                    deltas.push(Ok(StreamDelta::ToolInputDelta {
+                                        index: i,
+                                        delta: args_str,
+                                    }));
+                                }
+                            }
+                            _ => {}
                         }
-                        GeminiPart::FunctionCall { function_call } => {
-                            return Some(Ok(StreamDelta::ToolUseStart {
-                                index: i,
-                                id: format!("call_{}", function_call.name),
-                                name: function_call.name,
-                            }));
-                        }
-                        _ => {}
                     }
                 }
             }
 
-            None
+            deltas
         }
         Err(e) => {
             warn!(data = %event.data, error = %e, "Failed to parse Gemini SSE chunk");
-            None
+            Vec::new()
         }
     }
 }
@@ -342,18 +348,27 @@ impl LlmClient for GeminiClient {
 
             if !response.status().is_success() {
                 let status = response.status();
+                let headers = response.headers().clone();
                 let body = response
                     .text()
                     .await
                     .unwrap_or_else(|_| "unknown".to_string());
-                return Err(RyvosError::LlmRequest(format!("HTTP {}: {}", status, body)));
+                let retry_info = if status.as_u16() == 429 {
+                    crate::retry::CircuitBreaker::parse_retry_after_headers(&headers)
+                        .map(|d| format!(" (retry-after: {}s)", d.as_secs()))
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                };
+                return Err(RyvosError::LlmRequest(format!("HTTP {}: {}{}", status, body, retry_info)));
             }
 
             let byte_stream = response.bytes_stream();
             let sse_stream = SseStream::new(byte_stream);
 
-            let delta_stream =
-                sse_stream.filter_map(|event| async move { parse_gemini_chunk(event) });
+            let delta_stream = sse_stream
+                .map(|event| futures::stream::iter(parse_gemini_chunk(event)))
+                .flatten();
 
             Ok(Box::pin(delta_stream) as BoxStream<'_, Result<StreamDelta>>)
         })

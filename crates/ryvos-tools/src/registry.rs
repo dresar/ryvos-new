@@ -3,9 +3,8 @@ use std::sync::Arc;
 
 use ryvos_core::error::{Result, RyvosError};
 use ryvos_core::traits::Tool;
-use ryvos_core::types::{ToolContext, ToolDefinition, ToolResult};
+use ryvos_core::types::{ToolContext, ToolDefinition, ToolIndexEntry, ToolResult};
 
-/// Registry of available tools.
 pub struct ToolRegistry {
     tools: HashMap<String, Arc<dyn Tool>>,
 }
@@ -17,28 +16,23 @@ impl ToolRegistry {
         }
     }
 
-    /// Register a tool.
     pub fn register(&mut self, tool: impl Tool) {
         let name = tool.name().to_string();
         self.tools.insert(name, Arc::new(tool));
     }
 
-    /// Unregister a tool by name.
     pub fn unregister(&mut self, name: &str) -> bool {
         self.tools.remove(name).is_some()
     }
 
-    /// Get a tool by name.
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
         self.tools.get(name).cloned()
     }
 
-    /// List all registered tools.
     pub fn list(&self) -> Vec<&str> {
         self.tools.keys().map(|s| s.as_str()).collect()
     }
 
-    /// Get tool definitions for sending to the LLM.
     pub fn definitions(&self) -> Vec<ToolDefinition> {
         self.tools
             .values()
@@ -50,7 +44,37 @@ impl ToolRegistry {
             .collect()
     }
 
-    /// Execute a tool by name.
+    pub fn l1_index(&self) -> Vec<ToolIndexEntry> {
+        let mut entries: Vec<_> = self
+            .tools
+            .values()
+            .map(|t| ToolIndexEntry {
+                name: t.name().to_string(),
+                summary: t.description().to_string(),
+            })
+            .collect();
+        entries.sort_by(|a, b| a.name.cmp(&b.name));
+        entries
+    }
+
+    pub fn l2_schema(&self, name: &str) -> Option<serde_json::Value> {
+        self.tools.get(name).map(|t| {
+            serde_json::json!({
+                "name": t.name(),
+                "description": t.description(),
+                "input_schema": t.input_schema(),
+            })
+        })
+    }
+
+    pub fn l2_definition(&self, name: &str) -> Option<ToolDefinition> {
+        self.tools.get(name).map(|t| ToolDefinition {
+            name: t.name().to_string(),
+            description: t.description().to_string(),
+            input_schema: t.input_schema(),
+        })
+    }
+
     pub async fn execute(
         &self,
         name: &str,
@@ -72,11 +96,9 @@ impl ToolRegistry {
         }
     }
 
-    /// Create a registry with all built-in tools registered.
     pub fn with_builtins() -> Self {
         let mut registry = Self::new();
 
-        // ── Original 12 tools ───────────────────────────────────
         registry.register(crate::builtin::bash::BashTool);
         registry.register(crate::builtin::read::ReadTool);
         registry.register(crate::builtin::write::WriteTool);
@@ -89,19 +111,16 @@ impl ToolRegistry {
         registry.register(crate::builtin::web_fetch::WebFetchTool);
         registry.register(crate::builtin::apply_patch::ApplyPatchTool);
 
-        // ── Sessions (5) ────────────────────────────────────────
         registry.register(crate::builtin::sessions::SessionListTool);
         registry.register(crate::builtin::sessions::SessionHistoryTool);
         registry.register(crate::builtin::sessions::SessionSendTool);
         registry.register(crate::builtin::sessions::SessionSpawnTool);
         registry.register(crate::builtin::sessions::SessionStatusTool);
 
-        // ── Memory (3) ──────────────────────────────────────────
         registry.register(crate::builtin::memory::MemoryGetTool);
         registry.register(crate::builtin::memory::DailyLogWriteTool);
         registry.register(crate::builtin::memory::MemoryDeleteTool);
 
-        // ── File System (9) ─────────────────────────────────────
         registry.register(crate::builtin::filesystem::FileInfoTool);
         registry.register(crate::builtin::filesystem::FileCopyTool);
         registry.register(crate::builtin::filesystem::FileMoveTool);
@@ -112,7 +131,6 @@ impl ToolRegistry {
         registry.register(crate::builtin::filesystem::ArchiveCreateTool);
         registry.register(crate::builtin::filesystem::ArchiveExtractTool);
 
-        // ── Git (6) ─────────────────────────────────────────────
         registry.register(crate::builtin::git::GitStatusTool);
         registry.register(crate::builtin::git::GitDiffTool);
         registry.register(crate::builtin::git::GitLogTool);
@@ -120,26 +138,22 @@ impl ToolRegistry {
         registry.register(crate::builtin::git::GitBranchTool);
         registry.register(crate::builtin::git::GitCloneTool);
 
-        // ── Code/Dev (4) ────────────────────────────────────────
         registry.register(crate::builtin::code::CodeFormatTool);
         registry.register(crate::builtin::code::CodeLintTool);
         registry.register(crate::builtin::code::TestRunTool);
         registry.register(crate::builtin::code::CodeOutlineTool);
 
-        // ── Network/HTTP (4) ────────────────────────────────────
         registry.register(crate::builtin::network::HttpRequestTool);
         registry.register(crate::builtin::network::HttpDownloadTool);
         registry.register(crate::builtin::network::DnsLookupTool);
         registry.register(crate::builtin::network::NetworkCheckTool);
 
-        // ── System (5) ──────────────────────────────────────────
         registry.register(crate::builtin::system::ProcessListTool);
         registry.register(crate::builtin::system::ProcessKillTool);
         registry.register(crate::builtin::system::EnvGetTool);
         registry.register(crate::builtin::system::SystemInfoTool);
         registry.register(crate::builtin::system::DiskUsageTool);
 
-        // ── Data/Transform (8) ──────────────────────────────────
         registry.register(crate::builtin::data::JsonQueryTool);
         registry.register(crate::builtin::data::CsvParseTool);
         registry.register(crate::builtin::data::YamlConvertTool);
@@ -149,54 +163,21 @@ impl ToolRegistry {
         registry.register(crate::builtin::data::RegexReplaceTool);
         registry.register(crate::builtin::data::TextDiffTool);
 
-        // ── Scheduling (3) ──────────────────────────────────────
         registry.register(crate::builtin::scheduling::CronListTool);
         registry.register(crate::builtin::scheduling::CronAddTool);
         registry.register(crate::builtin::scheduling::CronRemoveTool);
 
-        // ── Database (2) ────────────────────────────────────────
         registry.register(crate::builtin::database::SqliteQueryTool);
         registry.register(crate::builtin::database::SqliteSchemaTool);
 
-        // ── Communication (1) ───────────────────────────────────
         registry.register(crate::builtin::notification::NotificationSendTool);
 
-        // ── Browser Automation (5) ──────────────────────────────
         crate::builtin::browser::register_browser_tools(&mut registry);
 
-        // ── Viking Memory (4) — tools check for Viking at execution time ──
         registry.register(crate::builtin::viking::VikingSearchTool);
         registry.register(crate::builtin::viking::VikingReadTool);
         registry.register(crate::builtin::viking::VikingWriteTool);
         registry.register(crate::builtin::viking::VikingListTool);
-
-        // Disabled: use MCP servers instead
-        // // ── Google Workspace (6) ────────────────────────────────
-        // registry.register(crate::builtin::google::GmailInboxTool);
-        // registry.register(crate::builtin::google::GmailReadTool);
-        // registry.register(crate::builtin::google::GmailSendTool);
-        // registry.register(crate::builtin::google::CalendarListTool);
-        // registry.register(crate::builtin::google::CalendarCreateTool);
-        // registry.register(crate::builtin::google::DriveSearchTool);
-
-        // Disabled: use MCP servers instead
-        // // ── Notion (4) ─────────────────────────────────────────
-        // registry.register(crate::builtin::notion::NotionSearchTool);
-        // registry.register(crate::builtin::notion::NotionReadPageTool);
-        // registry.register(crate::builtin::notion::NotionCreatePageTool);
-        // registry.register(crate::builtin::notion::NotionQueryDatabaseTool);
-
-        // Disabled: use MCP servers instead
-        // // ── Jira (3) ───────────────────────────────────────────
-        // registry.register(crate::builtin::jira::JiraSearchTool);
-        // registry.register(crate::builtin::jira::JiraCreateIssueTool);
-        // registry.register(crate::builtin::jira::JiraUpdateIssueTool);
-
-        // Disabled: use MCP servers instead
-        // // ── Linear (3) ─────────────────────────────────────────
-        // registry.register(crate::builtin::linear::LinearSearchTool);
-        // registry.register(crate::builtin::linear::LinearCreateIssueTool);
-        // registry.register(crate::builtin::linear::LinearListProjectsTool);
 
         registry
     }
@@ -227,7 +208,6 @@ mod tests {
         registry.register(MockTool::new("removable"));
         assert!(registry.unregister("removable"));
         assert!(registry.get("removable").is_none());
-        // Unregistering non-existent returns false
         assert!(!registry.unregister("removable"));
     }
 
@@ -281,7 +261,6 @@ mod tests {
     fn registry_with_builtins_has_tools() {
         let registry = ToolRegistry::with_builtins();
         let names = registry.list();
-        // Spot-check a few known builtins
         assert!(names.contains(&"read"));
         assert!(names.contains(&"write"));
         assert!(names.contains(&"edit"));
@@ -290,8 +269,31 @@ mod tests {
         assert!(names.contains(&"csv_parse"));
         assert!(names.contains(&"file_info"));
         assert!(names.contains(&"bash"));
-        // Should have many tools
         assert!(names.len() > 40);
+    }
+
+    #[test]
+    fn registry_l1_index_and_l2_schema() {
+        let mut registry = ToolRegistry::new();
+        registry.register(MockTool::new("alpha").with_description("Alpha desc"));
+        registry.register(MockTool::new("beta").with_description("Beta desc"));
+
+        let index = registry.l1_index();
+        assert_eq!(index.len(), 2);
+        assert_eq!(index[0].name, "alpha");
+        assert_eq!(index[0].summary, "Alpha desc");
+        assert_eq!(index[1].name, "beta");
+        assert_eq!(index[1].summary, "Beta desc");
+
+        let schema = registry.l2_schema("alpha");
+        assert!(schema.is_some());
+        let val = schema.unwrap();
+        assert_eq!(val["name"], "alpha");
+        assert_eq!(val["description"], "Alpha desc");
+
+        assert!(registry.l2_schema("non_existent").is_none());
+        assert!(registry.l2_definition("alpha").is_some());
+        assert!(registry.l2_definition("non_existent").is_none());
     }
 
     #[test]

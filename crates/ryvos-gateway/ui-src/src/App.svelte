@@ -5,6 +5,7 @@
   import { authenticated } from './lib/stores.js';
 
   import Sidebar from './lib/components/Sidebar.svelte';
+  import MobileBottomNav from './lib/components/MobileBottomNav.svelte';
   import LoginOverlay from './lib/components/LoginOverlay.svelte';
   import CommandPalette from './lib/components/CommandPalette.svelte';
 
@@ -22,13 +23,13 @@
   import CronManager from './lib/pages/Graph.svelte';
   import Goals from './lib/pages/Goals.svelte';
 
-  let isAuthenticated = false;
-  let currentRoute = 'chat';
-  let routeParam = '';
-  let showCommandPalette = false;
-  let sidebarOpen = false;
+  let isAuthenticated = $state(false);
+  let currentRoute = $state('chat');
+  let routeParam = $state('');
+  let showCommandPalette = $state(false);
+  let sidebarOpen = $state(false);
 
-  const unsubAuth = authenticated.subscribe(v => isAuthenticated = v);
+  let unsubAuth = () => {};
 
   function parseHash() {
     const hash = window.location.hash || '#/chat';
@@ -38,7 +39,7 @@
   }
 
   function handleLogin(e) {
-    const key = e.detail.key;
+    const key = e.key;
     setApiKey(key);
     authenticated.set(true);
     connect(key);
@@ -53,6 +54,10 @@
   }
 
   onMount(() => {
+    unsubAuth = authenticated.subscribe(v => {
+      isAuthenticated = v;
+    });
+
     const key = getApiKey();
     if (key || key === '') {
       authenticated.set(true);
@@ -72,59 +77,73 @@
 </script>
 
 {#if !isAuthenticated}
-  <LoginOverlay on:login={handleLogin} />
+  <LoginOverlay onlogin={handleLogin} />
 {:else}
-  <div class="flex h-screen bg-[#FEFCF9]">
-    <!-- Mobile overlay -->
-    {#if sidebarOpen}
-      <!-- svelte-ignore a11y-click-events-have-key-events -->
-      <!-- svelte-ignore a11y-no-static-element-interactions -->
-      <div class="fixed inset-0 bg-black/40 z-40 md:hidden" on:click={() => sidebarOpen = false}></div>
-    {/if}
-
+  <div class="flex h-screen bg-[#EDF1FC] overflow-hidden">
     <Sidebar {currentRoute} bind:open={sidebarOpen} />
 
-    <main class="flex-1 overflow-y-auto p-6 md:p-8">
-      <!-- Mobile hamburger -->
-      <button
-        class="md:hidden mb-4 p-2 bg-white border-2 border-[#1A1A1A] text-[#6B6560] hover:text-[#1A1A1A] hover:bg-[#F7F4F0] transition-colors"
-        on:click={() => sidebarOpen = true}
-      >
-        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-          <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
-        </svg>
-      </button>
+    <div class="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
+      <header class="md:hidden flex items-center justify-between px-4 py-3 bg-white/90 backdrop-blur-md border-b border-[#DCE4F3] z-30">
+        <button
+          type="button"
+          aria-label="Open sidebar menu"
+          class="btn-surface p-2 rounded-xl flex items-center justify-center text-[#1B2943]"
+          onclick={() => sidebarOpen = true}
+        >
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+          </svg>
+        </button>
 
-      {#if currentRoute === 'chat'}
-        <Chat sessionId={routeParam} />
-      {:else if currentRoute === 'dashboard'}
-        <Dashboard />
-      {:else if currentRoute === 'sessions'}
-        <Sessions />
-      {:else if currentRoute === 'runs'}
-        <Runs />
-      {:else if currentRoute === 'costs'}
-        <Costs />
-      {:else if currentRoute === 'settings'}
-        <Settings />
-      {:else if currentRoute === 'audit'}
-        <AuditTrail />
-      {:else if currentRoute === 'viking'}
-        <VikingBrowser />
-      {:else if currentRoute === 'config'}
-        <ConfigEditor />
-      {:else if currentRoute === 'channels'}
-        <Channels />
-      {:else if currentRoute === 'integrations'}
-        <Integrations />
-      {:else if currentRoute === 'cron'}
-        <CronManager />
-      {:else if currentRoute === 'goals'}
-        <Goals />
-      {:else}
-        <Chat sessionId={routeParam} />
-      {/if}
-    </main>
+        <span class="font-heading font-bold text-base text-[#1B2943] capitalize">{currentRoute}</span>
+
+        <button
+          type="button"
+          aria-label="Search"
+          class="btn-surface p-2 rounded-xl flex items-center justify-center text-[#64748B]"
+          onclick={() => showCommandPalette = true}
+        >
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+        </button>
+      </header>
+
+      <main class="flex-1 overflow-y-auto p-4 md:p-8 pb-24 md:pb-8">
+        {#if currentRoute === 'chat'}
+          <Chat sessionId={routeParam} />
+        {:else if currentRoute === 'dashboard'}
+          <Dashboard />
+        {:else if currentRoute === 'sessions'}
+          <Sessions />
+        {:else if currentRoute === 'runs'}
+          <Runs />
+        {:else if currentRoute === 'costs'}
+          <Costs />
+        {:else if currentRoute === 'settings'}
+          <Settings />
+        {:else if currentRoute === 'audit'}
+          <AuditTrail />
+        {:else if currentRoute === 'viking'}
+          <VikingBrowser />
+        {:else if currentRoute === 'config'}
+          <ConfigEditor />
+        {:else if currentRoute === 'channels'}
+          <Channels />
+        {:else if currentRoute === 'integrations'}
+          <Integrations />
+        {:else if currentRoute === 'cron'}
+          <CronManager />
+        {:else if currentRoute === 'goals'}
+          <Goals />
+        {:else}
+          <Chat sessionId={routeParam} />
+        {/if}
+      </main>
+    </div>
+
+    <MobileBottomNav {currentRoute} onToggleMenu={() => sidebarOpen = !sidebarOpen} />
   </div>
-  <CommandPalette bind:visible={showCommandPalette} on:close={() => showCommandPalette = false} />
+
+  <CommandPalette bind:visible={showCommandPalette} onclose={() => showCommandPalette = false} />
 {/if}

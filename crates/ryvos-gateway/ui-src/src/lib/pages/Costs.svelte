@@ -3,16 +3,16 @@
   import { apiFetch } from '../api.js';
   import MetricCard from '../components/MetricCard.svelte';
 
-  let summary = null;
-  let breakdown = [];
-  let loading = true;
-  let error = '';
+  let summary = $state(null);
+  let breakdown = $state([]);
+  let loading = $state(true);
+  let error = $state('');
 
   let now = new Date();
   let thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000);
-  let fromDate = thirtyDaysAgo.toISOString().split('T')[0];
-  let toDate = now.toISOString().split('T')[0];
-  let groupBy = 'model';
+  let fromDate = $state(thirtyDaysAgo.toISOString().split('T')[0]);
+  let toDate = $state(now.toISOString().split('T')[0]);
+  let groupBy = $state('model');
 
   async function loadCosts() {
     loading = true;
@@ -38,90 +38,96 @@
 </script>
 
 <div>
-  <div class="mb-7">
-    <h2 class="text-2xl font-heading font-bold tracking-tight text-[#1A1A1A]">Cost Analysis</h2>
-    <p class="text-[#9B9590] text-sm mt-1">Token usage and spending breakdown</p>
+  <div class="mb-6">
+    <h2 class="text-2xl font-heading font-bold tracking-tight text-[#1B2943]">Cost Analysis</h2>
+    <p class="text-[#778399] text-sm mt-1">Token consumption and cost aggregation across providers</p>
   </div>
 
-  <!-- Controls -->
-  <div class="flex items-center gap-4 flex-wrap mb-6 p-4 bg-white border-2 border-[#1A1A1A]">
-    <label class="flex items-center gap-2 text-xs text-[#6B6560] font-medium">
+  <div class="card-soft p-4 mb-6 flex items-center gap-4 flex-wrap">
+    <label class="flex items-center gap-2 text-xs text-[#64748B] font-medium">
       From
-      <input type="date" bind:value={fromDate}
-        class="px-2.5 py-1.5 bg-white border-2 border-[#1A1A1A] text-[#1A1A1A] text-xs outline-none
-               focus:border-[#F07030] focus:ring-2 focus:ring-[#F07030]/20 transition-all duration-200" />
+      <input
+        type="date"
+        bind:value={fromDate}
+        class="input-soft px-3 py-1.5 text-xs text-[#1B2943]"
+      />
     </label>
-    <label class="flex items-center gap-2 text-xs text-[#6B6560] font-medium">
+    <label class="flex items-center gap-2 text-xs text-[#64748B] font-medium">
       To
-      <input type="date" bind:value={toDate}
-        class="px-2.5 py-1.5 bg-white border-2 border-[#1A1A1A] text-[#1A1A1A] text-xs outline-none
-               focus:border-[#F07030] focus:ring-2 focus:ring-[#F07030]/20 transition-all duration-200" />
+      <input
+        type="date"
+        bind:value={toDate}
+        class="input-soft px-3 py-1.5 text-xs text-[#1B2943]"
+      />
     </label>
-    <label class="flex items-center gap-2 text-xs text-[#6B6560] font-medium">
+    <label class="flex items-center gap-2 text-xs text-[#64748B] font-medium">
       Group by
-      <select bind:value={groupBy}
-        class="px-2.5 py-1.5 bg-white border-2 border-[#1A1A1A] text-[#1A1A1A] text-xs outline-none
-               focus:border-[#F07030] focus:ring-2 focus:ring-[#F07030]/20 transition-all duration-200">
+      <select
+        bind:value={groupBy}
+        class="input-soft px-3 py-1.5 text-xs text-[#1B2943]"
+      >
         <option value="model">Model</option>
         <option value="provider">Provider</option>
         <option value="day">Day</option>
       </select>
     </label>
-    <button on:click={loadCosts}
-      class="px-4 py-1.5 bg-[#F07030] text-white border-2 border-[#1A1A1A]
-             text-xs font-semibold transition-all duration-200 shadow-brutal-sm brutal-shift">
+    <button
+      type="button"
+      onclick={loadCosts}
+      class="btn-primary px-4 py-1.5 text-xs font-semibold ml-auto"
+    >
       Refresh
     </button>
   </div>
 
   {#if loading}
-    <div class="text-center py-8">
-      <p class="text-[#9B9590] text-sm animate-pulse">Loading cost data...</p>
+    <div class="card-soft p-8 text-center">
+      <p class="text-[#778399] text-sm animate-pulse">Loading cost data...</p>
     </div>
   {:else if error}
-    <div class="bg-white border-2 border-[#1A1A1A] p-12 text-center">
-      <p class="text-[#9B9590] text-sm">Cost tracking not configured</p>
+    <div class="card-soft p-12 text-center">
+      <p class="text-[#778399] text-sm">Cost tracking not configured</p>
     </div>
   {:else}
-    <!-- Summary cards -->
     {#if summary}
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        <MetricCard label="Total Cost" value={'$' + ((summary.total_cost_cents || 0) / 100).toFixed(2)} type="spend" />
-        <MetricCard label="Input Tokens" value={(summary.total_input_tokens || 0).toLocaleString()} type="runs" />
-        <MetricCard label="Output Tokens" value={(summary.total_output_tokens || 0).toLocaleString()} type="sessions" />
-        <MetricCard label="Events" value={(summary.total_events || 0).toLocaleString()} type="uptime" />
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <MetricCard label="Total Cost" value={'$' + ((summary.total_cost_cents || 0) / 100).toFixed(2)} icon={'<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>'} />
+        <MetricCard label="Input Tokens" value={(summary.total_input_tokens || 0).toLocaleString()} icon={'<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>'} />
+        <MetricCard label="Output Tokens" value={(summary.total_output_tokens || 0).toLocaleString()} icon={'<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>'} />
+        <MetricCard label="Events" value={(summary.total_events || 0).toLocaleString()} icon={'<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>'} />
       </div>
     {/if}
 
-    <!-- Breakdown table -->
     {#if breakdown.length === 0}
-      <div class="bg-white border-2 border-[#1A1A1A] p-8 text-center">
-        <p class="text-[#9B9590] text-sm">No cost data for this period</p>
+      <div class="card-soft p-8 text-center">
+        <p class="text-[#778399] text-sm">No cost data recorded for this period</p>
       </div>
     {:else}
-      <div class="border-2 border-[#1A1A1A] overflow-hidden">
-        <table class="w-full text-sm">
-          <thead>
-            <tr>
-              <th class="px-4 py-3 bg-[#F7F4F0] text-left text-xs uppercase tracking-wider font-bold text-[#9B9590] border-b-2 border-[#1A1A1A]">
-                {capitalize(groupBy)}
-              </th>
-              <th class="px-4 py-3 bg-[#F7F4F0] text-left text-xs uppercase tracking-wider font-bold text-[#9B9590] border-b-2 border-[#1A1A1A]">Cost</th>
-              <th class="px-4 py-3 bg-[#F7F4F0] text-left text-xs uppercase tracking-wider font-bold text-[#9B9590] border-b-2 border-[#1A1A1A]">Input Tokens</th>
-              <th class="px-4 py-3 bg-[#F7F4F0] text-left text-xs uppercase tracking-wider font-bold text-[#9B9590] border-b-2 border-[#1A1A1A]">Output Tokens</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each breakdown as row}
-              <tr class="hover:bg-[#F7F4F0] transition-colors duration-150">
-                <td class="px-4 py-3 border-b border-[#E8E4E0] font-medium text-[#1A1A1A]">{row.key}</td>
-                <td class="px-4 py-3 border-b border-[#E8E4E0] font-mono text-[#1A1A1A]">${((row.cost_cents || 0) / 100).toFixed(3)}</td>
-                <td class="px-4 py-3 border-b border-[#E8E4E0] text-[#9B9590]">{(row.input_tokens || 0).toLocaleString()}</td>
-                <td class="px-4 py-3 border-b border-[#E8E4E0] text-[#9B9590]">{(row.output_tokens || 0).toLocaleString()}</td>
+      <div class="card-soft overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="bg-[#F8FAFF] border-b border-[#DCE4F3]">
+                <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-[#778399]">
+                  {capitalize(groupBy)}
+                </th>
+                <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-[#778399]">Cost</th>
+                <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-[#778399]">Input Tokens</th>
+                <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-[#778399]">Output Tokens</th>
               </tr>
-            {/each}
-          </tbody>
-        </table>
+            </thead>
+            <tbody class="divide-y divide-[#DCE4F3]">
+              {#each breakdown as row}
+                <tr class="hover:bg-[#F8FAFF] transition-colors duration-150">
+                  <td class="px-4 py-3 font-semibold text-[#1B2943]">{row.key}</td>
+                  <td class="px-4 py-3 font-mono text-[#1B2943] tabular-nums">${((row.cost_cents || 0) / 100).toFixed(3)}</td>
+                  <td class="px-4 py-3 text-[#778399] tabular-nums">{(row.input_tokens || 0).toLocaleString()}</td>
+                  <td class="px-4 py-3 text-[#778399] tabular-nums">{(row.output_tokens || 0).toLocaleString()}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
       </div>
     {/if}
   {/if}

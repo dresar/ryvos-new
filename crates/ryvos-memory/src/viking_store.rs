@@ -34,24 +34,20 @@ use tracing::debug;
 
 use crate::viking::{ContextLevel, VikingDirEntry, VikingMeta, VikingResult};
 
-/// SQLite-backed storage for Viking hierarchical memory entries.
 pub struct VikingStore {
     conn: Mutex<Connection>,
 }
 
 impl VikingStore {
-    /// Open or create the Viking store at the given path.
     pub fn open(path: &std::path::Path) -> Result<Self, String> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create Viking DB directory: {}", e))?;
         }
         let conn = Connection::open(path).map_err(|e| e.to_string())?;
+        crate::apply_lean_pragmas(&conn).map_err(|e| e.to_string())?;
         conn.execute_batch(
-            "PRAGMA journal_mode = WAL;
-             PRAGMA synchronous = NORMAL;
-
-             CREATE TABLE IF NOT EXISTS viking_entries (
+            "CREATE TABLE IF NOT EXISTS viking_entries (
                  id INTEGER PRIMARY KEY AUTOINCREMENT,
                  user_id TEXT NOT NULL,
                  path TEXT NOT NULL,
@@ -74,8 +70,7 @@ impl VikingStore {
                  path,
                  user_id,
                  tokenize='porter unicode61'
-             );
-             -- FTS sync is manual in write/delete methods to handle upserts correctly",
+             );",
         )
         .map_err(|e| e.to_string())?;
         Ok(Self {
@@ -83,9 +78,9 @@ impl VikingStore {
         })
     }
 
-    /// Create an in-memory store for testing.
     pub fn in_memory() -> Result<Self, String> {
         let conn = Connection::open_in_memory().map_err(|e| e.to_string())?;
+        crate::apply_lean_pragmas(&conn).map_err(|e| e.to_string())?;
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS viking_entries (
                  id INTEGER PRIMARY KEY AUTOINCREMENT,

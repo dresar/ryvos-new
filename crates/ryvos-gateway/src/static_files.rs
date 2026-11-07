@@ -27,7 +27,13 @@ pub async fn static_file(Path(path): Path<String>) -> impl IntoResponse {
                 .to_string();
             (
                 StatusCode::OK,
-                [(header::CONTENT_TYPE, mime)],
+                [
+                    (header::CONTENT_TYPE, mime),
+                    (
+                        header::CACHE_CONTROL,
+                        "public, max-age=31536000, immutable".to_string(),
+                    ),
+                ],
                 content.data.to_vec(),
             )
                 .into_response()

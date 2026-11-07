@@ -248,6 +248,19 @@ impl Tool for TestRunTool {
 
 // ── CodeOutlineTool ─────────────────────────────────────────────
 
+static OUTLINE_PATTERNS: std::sync::LazyLock<[regex::Regex; 8]> = std::sync::LazyLock::new(|| {
+    [
+        regex::Regex::new(r"(?m)^(?:pub\s+)?(?:async\s+)?fn\s+(\w+)").unwrap(),
+        regex::Regex::new(r"(?m)^(?:pub\s+)?struct\s+(\w+)").unwrap(),
+        regex::Regex::new(r"(?m)^(?:pub\s+)?enum\s+(\w+)").unwrap(),
+        regex::Regex::new(r"(?m)^(?:pub\s+)?trait\s+(\w+)").unwrap(),
+        regex::Regex::new(r"(?m)^(?:pub\s+)?impl(?:<[^>]*>)?\s+(\w+)").unwrap(),
+        regex::Regex::new(r"(?m)^class\s+(\w+)").unwrap(),
+        regex::Regex::new(r"(?m)^def\s+(\w+)").unwrap(),
+        regex::Regex::new(r"(?m)^(?:export\s+)?(?:async\s+)?function\s+(\w+)").unwrap(),
+    ]
+});
+
 pub struct CodeOutlineTool;
 
 #[derive(Deserialize)]
@@ -289,20 +302,9 @@ impl Tool for CodeOutlineTool {
                         message: e.to_string(),
                     })?;
 
-            let patterns = [
-                regex::Regex::new(r"(?m)^(?:pub\s+)?(?:async\s+)?fn\s+(\w+)").unwrap(),
-                regex::Regex::new(r"(?m)^(?:pub\s+)?struct\s+(\w+)").unwrap(),
-                regex::Regex::new(r"(?m)^(?:pub\s+)?enum\s+(\w+)").unwrap(),
-                regex::Regex::new(r"(?m)^(?:pub\s+)?trait\s+(\w+)").unwrap(),
-                regex::Regex::new(r"(?m)^(?:pub\s+)?impl(?:<[^>]*>)?\s+(\w+)").unwrap(),
-                regex::Regex::new(r"(?m)^class\s+(\w+)").unwrap(),
-                regex::Regex::new(r"(?m)^def\s+(\w+)").unwrap(),
-                regex::Regex::new(r"(?m)^(?:export\s+)?(?:async\s+)?function\s+(\w+)").unwrap(),
-            ];
-
             let mut output = String::new();
             for (i, line) in content.lines().enumerate() {
-                for pat in &patterns {
+                for pat in OUTLINE_PATTERNS.iter() {
                     if pat.is_match(line) {
                         output.push_str(&format!("{:>5}: {}\n", i + 1, line.trim()));
                         break;

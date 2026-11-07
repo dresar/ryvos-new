@@ -11,7 +11,6 @@ use ryvos_core::types::*;
 
 use crate::streaming::{SseEvent, SseStream};
 
-/// Cohere v2 Chat API client.
 pub struct CohereClient {
     http: Client,
 }
@@ -31,8 +30,6 @@ impl Default for CohereClient {
 }
 
 const COHERE_API_URL: &str = "https://api.cohere.com/v2/chat";
-
-// ── Request types ────────────────────────────────────────────────
 
 #[derive(Serialize)]
 struct CohereRequest {
@@ -92,12 +89,12 @@ struct CohereFnDef {
     parameters: serde_json::Value,
 }
 
-// ── Response types ───────────────────────────────────────────────
-
 #[derive(Deserialize, Debug)]
 struct CohereStreamEvent {
     #[serde(default, rename = "type")]
     event_type: Option<String>,
+    #[serde(default)]
+    index: Option<usize>,
     #[serde(default)]
     delta: Option<CohereDelta>,
     #[serde(default)]
@@ -128,6 +125,8 @@ struct CohereDeltaContent {
 struct CohereDeltaToolCalls {
     #[serde(default)]
     id: Option<String>,
+    #[serde(default)]
+    index: Option<usize>,
     #[serde(default)]
     function: Option<CohereDeltaFn>,
 }
@@ -162,8 +161,6 @@ struct CohereTokens {
     output_tokens: u64,
 }
 
-// ── Conversion ───────────────────────────────────────────────────
-
 fn convert_messages(messages: Vec<ChatMessage>) -> Vec<CohereMessage> {
     let mut out = Vec::new();
 
@@ -179,7 +176,6 @@ fn convert_messages(messages: Vec<ChatMessage>) -> Vec<CohereMessage> {
                 });
             }
             Role::User => {
-                // Check for tool results
                 let tool_results: Vec<_> = msg
                     .content
                     .iter()
@@ -245,9 +241,7 @@ fn convert_messages(messages: Vec<ChatMessage>) -> Vec<CohereMessage> {
                     });
                 }
             }
-            Role::Tool => {
-                // Handled via User role ToolResult blocks
-            }
+            Role::Tool => {}
         }
     }
 
@@ -283,10 +277,11 @@ fn parse_cohere_chunk(event: SseEvent) -> Option<Result<StreamDelta>> {
                     if let Some(delta) = evt.delta {
                         if let Some(msg) = delta.message {
                             if let Some(tc) = msg.tool_calls {
+                                let index = tc.index.or(evt.index).unwrap_or(0);
                                 if let (Some(id), Some(func)) = (tc.id, tc.function) {
                                     if let Some(name) = func.name {
                                         return Some(Ok(StreamDelta::ToolUseStart {
-                                            index: 0,
+                                            index,
                                             id,
                                             name,
                                         }));
@@ -301,10 +296,11 @@ fn parse_cohere_chunk(event: SseEvent) -> Option<Result<StreamDelta>> {
                     if let Some(delta) = evt.delta {
                         if let Some(msg) = delta.message {
                             if let Some(tc) = msg.tool_calls {
+                                let index = tc.index.or(evt.index).unwrap_or(0);
                                 if let Some(func) = tc.function {
                                     if let Some(args) = func.arguments {
                                         return Some(Ok(StreamDelta::ToolInputDelta {
-                                            index: 0,
+                                            index,
                                             delta: args,
                                         }));
                                     }
@@ -318,7 +314,6 @@ fn parse_cohere_chunk(event: SseEvent) -> Option<Result<StreamDelta>> {
                     if let Some(resp) = evt.response {
                         if let Some(meta) = resp.meta {
                             if let Some(tokens) = meta.tokens {
-                                // Emit usage before stop
                                 return Some(Ok(StreamDelta::Usage {
                                     input_tokens: tokens.input_tokens,
                                     output_tokens: tokens.output_tokens,
@@ -401,11 +396,19 @@ impl LlmClient for CohereClient {
 
             if !response.status().is_success() {
                 let status = response.status();
+                let headers = response.headers().clone();
                 let body = response
                     .text()
                     .await
                     .unwrap_or_else(|_| "unknown".to_string());
-                return Err(RyvosError::LlmRequest(format!("HTTP {}: {}", status, body)));
+                let retry_info = if status.as_u16() == 429 {
+                    crate::retry::CircuitBreaker::parse_retry_after_headers(&headers)
+                        .map(|d| format!(" (retry-after: {}s)", d.as_secs()))
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                };
+                return Err(RyvosError::LlmRequest(format!("HTTP {}: {}{}", status, body, retry_info)));
             }
 
             let byte_stream = response.bytes_stream();

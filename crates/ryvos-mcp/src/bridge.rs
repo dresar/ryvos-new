@@ -68,8 +68,8 @@ impl Tool for McpBridgedTool {
             debug!(server = %server, tool = %tool, "Calling MCP tool");
 
             match manager.call_tool(&server, &tool, arguments).await {
-                Ok(content) => Ok(ToolResult::success(content)),
-                Err(e) => Ok(ToolResult::error(e.to_string())),
+                Ok(content) => Ok(ToolResult::untrusted_success(content)),
+                Err(e) => Ok(ToolResult::untrusted_error(e.to_string())),
             }
         })
     }

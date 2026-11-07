@@ -230,7 +230,6 @@ impl McpClientManager {
             ))
         })?;
 
-        // Convert result content to string
         let content: Vec<String> = result
             .content
             .iter()
@@ -240,7 +239,7 @@ impl McpClientManager {
             })
             .collect();
 
-        Ok(content.join("\n"))
+        Ok(cap_mcp_output(content.join("\n")))
     }
 
     // ---- Resources ----
@@ -378,7 +377,6 @@ impl McpClientManager {
         }
     }
 
-    /// Disconnect from all servers.
     pub async fn disconnect_all(&self) {
         let mut conns = self.connections.lock().await;
         let names: Vec<String> = conns.keys().cloned().collect();
@@ -391,4 +389,42 @@ impl McpClientManager {
     }
 }
 
+pub const MAX_MCP_OUTPUT_BYTES: usize = 32 * 1024;
+
+pub fn cap_mcp_output(mut output: String) -> String {
+    if output.len() > MAX_MCP_OUTPUT_BYTES {
+        let mut boundary = MAX_MCP_OUTPUT_BYTES;
+        while !output.is_char_boundary(boundary) && boundary > 0 {
+            boundary -= 1;
+        }
+        output.truncate(boundary);
+    }
+    output
+}
+
 use rmcp::model::PromptMessage;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cap_mcp_output_within_limit() {
+        let small = "a".repeat(100);
+        let result = cap_mcp_output(small.clone());
+        assert_eq!(result, small);
+    }
+
+    #[test]
+    fn test_cap_mcp_output_truncates_at_32kb_char_boundary() {
+        let large = "x".repeat(MAX_MCP_OUTPUT_BYTES + 1000);
+        let result = cap_mcp_output(large);
+        assert_eq!(result.len(), MAX_MCP_OUTPUT_BYTES);
+
+        let mut multi_byte = "x".repeat(MAX_MCP_OUTPUT_BYTES - 1);
+        multi_byte.push_str("🦀🦀🦀");
+        let result_mb = cap_mcp_output(multi_byte);
+        assert!(result_mb.len() <= MAX_MCP_OUTPUT_BYTES);
+        assert!(result_mb.is_char_boundary(result_mb.len()));
+    }
+}

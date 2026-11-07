@@ -20,10 +20,9 @@ pub struct IntegrationStore {
 impl IntegrationStore {
     pub fn open(path: &std::path::Path) -> Result<Self, String> {
         let conn = Connection::open(path).map_err(|e| e.to_string())?;
+        crate::apply_lean_pragmas(&conn).map_err(|e| e.to_string())?;
         conn.execute_batch(
-            "PRAGMA journal_mode = WAL;
-             PRAGMA synchronous = NORMAL;
-             CREATE TABLE IF NOT EXISTS integrations (
+            "CREATE TABLE IF NOT EXISTS integrations (
                  app_id TEXT PRIMARY KEY,
                  provider TEXT NOT NULL,
                  access_token TEXT NOT NULL,

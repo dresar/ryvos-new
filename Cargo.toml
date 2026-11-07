@@ -52,7 +52,7 @@ dialoguer = "0.11"
 # Misc
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
-tokio-util = { version = "0.7", features = ["codec"] }
+tokio-util = { version = "0.7", features = ["codec", "io"] }
 rand = "0.8"
 tiktoken-rs = "0.6"
 regex = "1"
@@ -138,8 +138,15 @@ serde.workspace = true
 
 [dev-dependencies]
 tempfile = "3"
+futures.workspace = true
+rust-embed.workspace = true
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [profile.release]
-opt-level = 3
-lto = "thin"
+opt-level = 2
 strip = true
+codegen-units = 16
+lto = false
+
+[profile.release.package.chromiumoxide_cdp]
+opt-level = 0

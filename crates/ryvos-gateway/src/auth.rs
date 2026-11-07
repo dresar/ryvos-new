@@ -57,9 +57,6 @@ pub fn validate_auth(
         return None;
     }
 
-    // 3. No auth configured = full admin access (self-hosted single-user mode).
-    // If you haven't set up API keys, you're the only user — full access.
-    // To restrict access, add [[gateway.api_keys]] to config.toml.
     if config.api_keys.is_empty() {
         Some(AuthResult {
             name: "anonymous-admin".into(),

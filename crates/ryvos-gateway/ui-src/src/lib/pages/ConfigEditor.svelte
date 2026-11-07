@@ -2,12 +2,12 @@
   import { onMount } from 'svelte';
   import { apiFetch } from '../api.js';
 
-  let configContent = '';
-  let loading = true;
-  let error = '';
-  let saving = false;
-  let saveMessage = '';
-  let originalContent = '';
+  let configContent = $state('');
+  let loading = $state(true);
+  let error = $state('');
+  let saving = $state(false);
+  let saveMessage = $state('');
+  let originalContent = $state('');
 
   onMount(async () => {
     try {
@@ -39,61 +39,58 @@
     }
   }
 
-  $: hasChanges = configContent !== originalContent;
+  let hasChanges = $derived(configContent !== originalContent);
 </script>
 
 <div>
-  <div class="mb-7">
-    <h2 class="text-2xl font-heading font-bold tracking-tight text-[#1A1A1A]">Configuration</h2>
-    <p class="text-[#9B9590] text-sm mt-1">Edit your Ryvos config.toml</p>
+  <div class="mb-6">
+    <h2 class="text-2xl font-heading font-bold tracking-tight text-[#1B2943]">Configuration</h2>
+    <p class="text-[#778399] text-sm mt-1">Directly inspect and modify runtime config.toml</p>
   </div>
 
   {#if loading}
-    <div class="bg-white border-2 border-[#1A1A1A] p-8 text-center">
-      <p class="text-[#9B9590] text-sm animate-pulse">Loading configuration...</p>
+    <div class="card-soft p-8 text-center">
+      <p class="text-[#778399] text-sm animate-pulse">Loading configuration...</p>
     </div>
   {:else if error === 'admin_required'}
-    <div class="bg-white border-2 border-[#1A1A1A] p-12 text-center">
-      <svg class="mx-auto mb-3 w-8 h-8 text-[#D97706]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-      <p class="text-[#1A1A1A] text-sm font-medium mb-1">Admin Access Required</p>
-      <p class="text-[#9B9590] text-xs">The configuration editor requires an Admin API key. Connect with an admin key to edit config.toml.</p>
+    <div class="card-soft p-12 text-center">
+      <div class="w-12 h-12 rounded-2xl bg-[#FFFBEB] text-[#C58A2A] flex items-center justify-center mx-auto mb-3">
+        <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      </div>
+      <p class="text-[#1B2943] text-sm font-semibold mb-1">Admin Access Required</p>
+      <p class="text-[#778399] text-xs max-w-sm mx-auto">The configuration editor requires an Admin API key. Connect with an admin key to edit config.toml.</p>
     </div>
   {:else if error}
-    <div class="bg-white border-2 border-[#1A1A1A] p-12 text-center">
-      <p class="text-[#9B9590] text-sm">Configuration endpoint not available: {error}</p>
+    <div class="card-soft p-12 text-center">
+      <p class="text-[#778399] text-sm">Configuration endpoint not available: {error}</p>
     </div>
   {:else}
-    <div class="bg-white border-2 border-[#1A1A1A] p-5">
+    <div class="card-soft p-5">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="text-sm font-semibold text-[#1A1A1A]">config.toml</h3>
+        <h3 class="text-sm font-bold text-[#1B2943] font-mono">config.toml</h3>
         <div class="flex items-center gap-3">
           {#if saveMessage}
-            <span class="text-xs {saveMessage.startsWith('Error') ? 'text-[#DC2626]' : 'text-[#16A34A]'}">
+            <span class="text-xs font-medium {saveMessage.startsWith('Error') ? 'text-[#D94B5B]' : 'text-[#219B70]'}">
               {saveMessage}
             </span>
           {/if}
           {#if hasChanges}
-            <span class="text-xs text-[#D97706]">Unsaved changes</span>
+            <span class="text-xs font-medium text-[#C58A2A]">Unsaved changes</span>
           {/if}
           <button
-            on:click={saveConfig}
+            type="button"
+            onclick={saveConfig}
             disabled={saving || !hasChanges}
-            class="px-4 py-1.5 bg-[#F07030] text-white border-2 border-[#1A1A1A]
-                   text-xs font-semibold transition-all duration-200
-                   shadow-brutal-sm brutal-shift
-                   disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none"
+            class="btn-primary px-4 py-1.5 text-xs disabled:opacity-40"
           >
-            {saving ? 'Saving...' : 'Save'}
+            {saving ? 'Saving...' : 'Save Changes'}
           </button>
         </div>
       </div>
       <textarea
         bind:value={configContent}
         spellcheck="false"
-        class="w-full h-[500px] px-4 py-3 bg-white border-2 border-[#1A1A1A] font-mono
-               text-[#1A1A1A] text-sm leading-relaxed resize-y
-               outline-none transition-all duration-200
-               focus:border-[#F07030] focus:ring-2 focus:ring-[#F07030]/20"
+        class="input-soft w-full h-[500px] p-4 font-mono text-[#1B2943] text-xs leading-relaxed resize-y"
       ></textarea>
     </div>
   {/if}

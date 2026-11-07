@@ -1,16 +1,3 @@
-//! Persistence layer for Ryvos: sessions, memory, costs, and integrations.
-//!
-//! All storage is SQLite-based with no external database dependencies.
-//!
-//! - **VikingStore**: Hierarchical memory with L0/L1/L2 detail levels,
-//!   FTS5 full-text search, and the `viking://` URI protocol.
-//! - **SqliteStore**: Session message persistence with optional embeddings.
-//! - **CostStore**: Per-run cost tracking with monthly spend aggregation.
-//! - **SessionMetaStore**: Session metadata (channel, billing, token counts).
-//! - **IntegrationStore**: OAuth token storage for external services.
-//! - **VikingClient**: HTTP client for the standalone Viking server.
-//! - **Pricing**: Model pricing estimation for cost calculations.
-
 pub mod cost_store;
 pub mod embeddings;
 pub mod integration_store;
@@ -27,3 +14,13 @@ pub use session_meta::SessionMetaStore;
 pub use store::SqliteStore;
 pub use viking::VikingClient;
 pub use viking_store::VikingStore;
+
+pub fn apply_lean_pragmas(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "PRAGMA journal_mode = WAL;
+         PRAGMA synchronous = NORMAL;
+         PRAGMA cache_size = -2000;
+         PRAGMA mmap_size = 0;
+         PRAGMA temp_store = MEMORY;",
+    )
+}

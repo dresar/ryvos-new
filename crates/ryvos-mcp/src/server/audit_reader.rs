@@ -1,9 +1,6 @@
 use std::path::Path;
 use tokio::sync::Mutex;
 
-/// Lightweight read-only access to the Ryvos audit trail SQLite database.
-/// Opens in SQLITE_OPEN_READ_ONLY mode — safe for concurrent reads while
-/// the daemon writes (WAL mode).
 pub struct AuditReader {
     conn: Mutex<rusqlite::Connection>,
 }
