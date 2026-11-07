@@ -371,7 +371,8 @@ impl LlmClient for OpenAiClient {
 
             let mut req = self.http.post(base_url).json(&body);
 
-            if let Some(api_key) = &config.api_key {
+            let effective_key = config.get_effective_api_key().or_else(|| config.api_key.clone());
+            if let Some(api_key) = &effective_key {
                 req = req.header("Authorization", format!("Bearer {}", api_key));
             }
 

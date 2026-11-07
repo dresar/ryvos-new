@@ -11,7 +11,7 @@
       const data = await apiFetch('/api/sessions');
       sessionList = data.sessions || [];
     } catch (e) {
-      error = e.message;
+      error = e.message || 'Failed to load sessions';
     } finally {
       loading = false;
     }
@@ -27,82 +27,89 @@
   }
 
   function formatTime(ts) {
-    if (!ts) return '-';
+    if (!ts) return 'Never';
     try {
       const d = new Date(ts);
-      return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-    } catch { return '-'; }
+      return d.toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch {
+      return String(ts);
+    }
   }
 </script>
 
-<div>
-  <div class="mb-6">
-    <h2 class="text-2xl font-heading font-bold tracking-tight text-[#1B2943]">Sessions</h2>
-    <p class="text-[#778399] text-sm mt-1">Active conversation sessions and channel contexts</p>
+<div class="space-y-6">
+  <div>
+    <h2 class="text-2xl font-bold tracking-tight text-[var(--color-text-main)]">Conversation Sessions</h2>
+    <p class="text-sm text-[var(--color-text-muted)] mt-1">Active conversation sessions, execution channels, and runtime session metadata</p>
   </div>
 
   {#if loading}
-    <div class="card-soft p-8 text-center">
-      <p class="text-[#778399] text-sm animate-pulse">Loading sessions...</p>
+    <div class="neu-card p-12 text-center">
+      <div class="inline-block w-8 h-8 border-4 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin mb-3"></div>
+      <p class="text-sm text-[var(--color-text-muted)]">Loading registered sessions...</p>
     </div>
   {:else if error}
-    <div class="card-soft p-8 text-center">
-      <p class="text-[#778399] text-sm">Failed to load sessions: {error}</p>
+    <div class="neu-card p-8 border-l-4 border-[var(--color-danger)] text-left">
+      <h3 class="text-base font-bold text-[var(--color-danger)] mb-1">Session Indexing Error</h3>
+      <p class="text-sm text-[var(--color-text-muted)]">{error}</p>
     </div>
   {:else if sessionList.length === 0}
-    <div class="card-soft p-12 text-center">
-      <div class="w-12 h-12 rounded-2xl bg-[#E8EEFF] text-[#2448CB] flex items-center justify-center mx-auto mb-3">
-        <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
-      </div>
-      <h3 class="text-base font-semibold text-[#1B2943] mb-1">No active sessions</h3>
-      <p class="text-xs text-[#778399] max-w-sm mx-auto">Conversations opened in Web UI or adapters will appear here.</p>
+    <div class="neu-card p-12 text-center">
+      <p class="text-base font-semibold text-[var(--color-text-main)] mb-1">No Active Sessions</p>
+      <p class="text-xs text-[var(--color-text-muted)]">Conversations initiated via Web UI or external gateways will be listed here.</p>
     </div>
   {:else}
-    <div class="card-soft overflow-hidden">
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="bg-[#F8FAFF] border-b border-[#DCE4F3]">
-              <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-[#778399]">
-                Session ID
+    <div class="neu-card p-0 overflow-hidden">
+      <div class="table-scroll">
+        <table class="w-full text-left text-sm">
+          <thead class="border-b border-[var(--color-border)] bg-[var(--color-surface)]">
+            <tr>
+              <th class="px-4 py-3 text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">
+                Session Identifier
               </th>
-              <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-[#778399]">
+              <th class="px-4 py-3 text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">
                 Channel
               </th>
-              <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-[#778399]">
-                Last Active
+              <th class="px-4 py-3 text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">
+                Last Activity
               </th>
-              <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-[#778399]">
-                Runs
+              <th class="px-4 py-3 text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">
+                Run Count
               </th>
-              <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-[#778399]">
-                Actions
+              <th class="px-4 py-3 text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">
+                Action
               </th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-[#DCE4F3]">
+          <tbody class="divide-y divide-[var(--color-border)]">
             {#each sessionList as session}
-              <tr class="hover:bg-[#F8FAFF] transition-colors duration-150">
-                <td class="px-4 py-3 font-mono text-xs text-[#1B2943]">
-                  {truncate(getSid(session), 40)}
+              {@const sid = getSid(session)}
+              <tr class="hover:bg-[var(--color-bg)] transition-colors">
+                <td class="px-4 py-3 font-mono text-xs text-[var(--color-text-main)] whitespace-nowrap">
+                  {truncate(sid, 36)}
                 </td>
-                <td class="px-4 py-3 text-xs text-[#64748B]">
-                  <span class="px-2 py-0.5 rounded-full bg-[#E8EEFF] text-[#2448CB] font-medium">
+                <td class="px-4 py-3 text-xs whitespace-nowrap">
+                  <span class="inline-flex px-2 py-0.5 rounded-full font-semibold badge-info">
                     {session.channel || 'webui'}
                   </span>
                 </td>
-                <td class="px-4 py-3 text-xs text-[#778399] font-mono tabular-nums">
+                <td class="px-4 py-3 text-xs text-[var(--color-text-muted)] font-mono tabular-nums whitespace-nowrap">
                   {formatTime(session.last_active)}
                 </td>
-                <td class="px-4 py-3 text-xs text-[#1B2943] tabular-nums font-semibold">
-                  {session.total_runs ?? '-'}
+                <td class="px-4 py-3 text-xs text-[var(--color-text-main)] font-mono tabular-nums whitespace-nowrap">
+                  {session.total_runs ?? 1}
                 </td>
-                <td class="px-4 py-3">
+                <td class="px-4 py-3 whitespace-nowrap">
                   <a
-                    href="#/chat/{encodeURIComponent(getSid(session))}"
-                    class="btn-surface inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold text-[#2448CB] hover:bg-[#E8EEFF]"
+                    href={'#/chat/' + encodeURIComponent(sid)}
+                    class="btn-soft inline-flex items-center gap-1.5 min-h-[44px] px-4 py-2 text-xs font-semibold rounded-xl text-[var(--color-primary)]"
                   >
-                    <span>Open Chat</span>
+                    <span>Resume Chat</span>
                     <span aria-hidden="true">&rarr;</span>
                   </a>
                 </td>

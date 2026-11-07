@@ -31,6 +31,31 @@ pub struct SecurityGate {
     tainted_sessions: Arc<tokio::sync::RwLock<HashSet<String>>>,
 }
 
+fn is_destructive_system_command(cmd: &str) -> bool {
+    let lower = cmd.to_lowercase();
+    let trimmed = lower.trim();
+    if trimmed.contains("rm -rf /") || trimmed.contains("rm -fr /") || trimmed == "rm -rf /*" {
+        return true;
+    }
+    if trimmed.starts_with("mkfs") || trimmed.contains(" mkfs") {
+        return true;
+    }
+    if trimmed.contains("dd if=") && (trimmed.contains("of=/dev/sd") || trimmed.contains("of=/dev/nvme") || trimmed.contains("of=/dev/null")) {
+        return true;
+    }
+    if trimmed.contains(":(){ :|:& };:") || trimmed.contains(":(){:|:&};:") {
+        return true;
+    }
+    false
+}
+
+fn redact_secrets(content: &str) -> String {
+    static RE_API_KEY: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?i)\b(?:sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{30,}|AKIA[0-9A-Z]{16})\b").unwrap()
+    });
+    RE_API_KEY.replace_all(content, "[REDACTED_SECRET]").to_string()
+}
+
 impl SecurityGate {
     pub fn new(
         policy: SecurityPolicy,
@@ -78,6 +103,16 @@ impl SecurityGate {
         input: serde_json::Value,
         ctx: ToolContext,
     ) -> Result<ToolResult> {
+        if name == "bash" || name == "Bash" {
+            let cmd_str = input["command"].as_str().unwrap_or("");
+            if is_destructive_system_command(cmd_str) {
+                return Err(RyvosError::SecurityViolation(format!(
+                    "Command blocked by baseline security gate: destructive command detected: {}",
+                    cmd_str
+                )));
+            }
+        }
+
         let tool = {
             let tools = self.tools.read().await;
             tools
@@ -172,11 +207,12 @@ impl SecurityGate {
             }
         }
 
-        let result = self
+        let mut result = self
             .execute_tool_direct(&tool, name, input.clone(), ctx.clone())
             .await;
 
-        if let Ok(ref tool_result) = result {
+        if let Ok(ref mut tool_result) = result {
+            tool_result.content = redact_secrets(&tool_result.content);
             if tool_result.trust == TrustLevel::Untrusted
                 || tool_result.content.contains("<untrusted_content>")
             {

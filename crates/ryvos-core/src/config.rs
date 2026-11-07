@@ -543,9 +543,84 @@ pub struct ModelConfig {
     /// Path to copilot CLI binary (for copilot provider).
     #[serde(default)]
     pub copilot_command: Option<String>,
-    /// Runtime-only: CLI session ID for --resume (not serialized to config).
     #[serde(skip)]
     pub cli_session_id: Option<String>,
+    #[serde(default)]
+    pub api_keys: Vec<String>,
+}
+
+impl ModelConfig {
+    pub fn get_api_key_pool(&self) -> Vec<String> {
+        let mut keys = Vec::new();
+        if let Some(ref key) = self.api_key {
+            for part in key.split(|c| c == ',' || c == '\n' || c == ';') {
+                let trimmed = part.trim();
+                if !trimmed.is_empty() && !keys.contains(&trimmed.to_string()) {
+                    keys.push(trimmed.to_string());
+                }
+            }
+        }
+        for k in &self.api_keys {
+            for part in k.split(|c| c == ',' || c == '\n' || c == ';') {
+                let trimmed = part.trim();
+                if !trimmed.is_empty() && !keys.contains(&trimmed.to_string()) {
+                    keys.push(trimmed.to_string());
+                }
+            }
+        }
+        if keys.is_empty() {
+            let env_var_names = match self.provider.as_str() {
+                "gemini" | "google" => vec!["GEMINI_API_KEY", "GEMINI_API_KEYS", "GOOGLE_API_KEY"],
+                "anthropic" | "claude" => vec!["ANTHROPIC_API_KEY", "ANTHROPIC_API_KEYS"],
+                "openai" => vec!["OPENAI_API_KEY", "OPENAI_API_KEYS"],
+                "groq" => vec!["GROQ_API_KEY", "GROQ_API_KEYS"],
+                "deepseek" => vec!["DEEPSEEK_API_KEY", "DEEPSEEK_API_KEYS"],
+                "openrouter" => vec!["OPENROUTER_API_KEY", "OPENROUTER_API_KEYS"],
+                _ => vec!["API_KEY"],
+            };
+            for var_name in env_var_names {
+                if let Ok(val) = std::env::var(var_name) {
+                    for part in val.split(|c| c == ',' || c == '\n' || c == ';') {
+                        let trimmed = part.trim();
+                        if !trimmed.is_empty() && !keys.contains(&trimmed.to_string()) {
+                            keys.push(trimmed.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        keys
+    }
+
+    pub fn get_effective_api_key(&self) -> Option<String> {
+        self.get_api_key_pool().into_iter().next()
+    }
+}
+
+impl Default for ModelConfig {
+    fn default() -> Self {
+        Self {
+            provider: default_provider(),
+            model_id: "gemini-3.6-flash".to_string(),
+            api_key: None,
+            api_keys: Vec::new(),
+            base_url: None,
+            max_tokens: default_max_tokens(),
+            temperature: default_temperature(),
+            thinking: ThinkingLevel::Off,
+            retry: None,
+            azure_resource: None,
+            azure_deployment: None,
+            azure_api_version: None,
+            aws_region: None,
+            extra_headers: HashMap::new(),
+            claude_command: None,
+            cli_allowed_tools: Vec::new(),
+            cli_permission_mode: None,
+            copilot_command: None,
+            cli_session_id: None,
+        }
+    }
 }
 
 fn default_provider() -> String {

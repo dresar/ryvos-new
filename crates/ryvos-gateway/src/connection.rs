@@ -42,6 +42,7 @@ pub async fn handle_connection(
     store: Arc<dyn SessionStore>,
     session_mgr: Arc<SessionManager>,
     broker: Arc<ApprovalBroker>,
+    session_meta: Option<Arc<ryvos_memory::SessionMetaStore>>,
 ) {
     let (ws_tx, mut ws_rx) = ws.split();
     let ws_tx = Arc::new(Mutex::new(ws_tx));
@@ -90,6 +91,7 @@ pub async fn handle_connection(
                                     .with_tool(name.clone())
                                     .with_data(serde_json::json!({
                                         "content": result.content,
+                                        "output": result.content,
                                         "is_error": result.is_error,
                                     })),
                             )
@@ -131,6 +133,7 @@ pub async fn handle_connection(
                             Some(ServerEvent::new(sid, "approval_requested").with_data(
                                 serde_json::json!({
                                     "id": request.id,
+                                    "request_id": request.id,
                                     "tool_name": request.tool_name,
                                     "tier": request.tier.to_string(),
                                     "input_summary": request.input_summary,
@@ -302,10 +305,28 @@ pub async fn handle_connection(
                         ),
                         AgentEvent::TurnComplete { .. } => None,
                         AgentEvent::ApprovalResolved { .. } => None,
-                        AgentEvent::GuardianHint { .. }
-                        | AgentEvent::GoalEvaluated { .. }
-                        | AgentEvent::DecisionMade { .. }
-                        | AgentEvent::JudgeVerdict { .. } => None,
+                        AgentEvent::GuardianHint { session_id, message } => {
+                            Some(ServerEvent::new(session_id.to_string(), "guardian_hint").with_data(
+                                serde_json::json!({ "message": message }),
+                            ))
+                        }
+                        AgentEvent::GoalEvaluated { session_id, evaluation } => {
+                            Some(ServerEvent::new(session_id.to_string(), "goal_evaluated").with_data(
+                                serde_json::to_value(evaluation).unwrap_or_default(),
+                            ))
+                        }
+                        AgentEvent::DecisionMade { decision } => {
+                            let subs = event_subs.lock().await;
+                            let sid = subs.last().cloned().unwrap_or_else(|| "*".to_string());
+                            Some(ServerEvent::new(sid, "decision_made").with_data(
+                                serde_json::to_value(decision).unwrap_or_default(),
+                            ))
+                        }
+                        AgentEvent::JudgeVerdict { session_id, verdict } => {
+                            Some(ServerEvent::new(session_id.to_string(), "judge_verdict").with_data(
+                                serde_json::to_value(verdict).unwrap_or_default(),
+                            ))
+                        }
                     };
 
                 if let Some(evt) = server_event {
@@ -328,6 +349,7 @@ pub async fn handle_connection(
     let lane_session_mgr = session_mgr.clone();
     let lane_subs = subscribed_sessions.clone();
     let lane_broker = broker.clone();
+    let lane_meta = session_meta.clone();
     let lane_task = tokio::spawn(async move {
         while let Some(item) = lane_rx.recv().await {
             let result = process_request(
@@ -338,6 +360,7 @@ pub async fn handle_connection(
                 &lane_session_mgr,
                 &lane_subs,
                 &lane_broker,
+                lane_meta.as_ref(),
             )
             .await;
             let _ = item.respond.send(result);
@@ -372,18 +395,54 @@ pub async fn handle_connection(
                 };
 
                 let id = frame.id.clone();
-                match lane.send(frame.method, frame.params).await {
-                    Some(result) => {
-                        let resp = ServerResponse::ok(id, result);
-                        let json = serde_json::to_string(&resp).unwrap();
-                        let mut tx = ws_tx.lock().await;
-                        let _ = tx.send(Message::Text(json.into())).await;
+                match frame.method.as_str() {
+                    "agent.cancel" => {
+                        runtime.cancel_active_run();
+                        let resp = ServerResponse::ok(id, serde_json::json!({"cancelled": true}));
+                        if let Ok(json) = serde_json::to_string(&resp) {
+                            let mut tx = ws_tx.lock().await;
+                            let _ = tx.send(Message::Text(json.into())).await;
+                        }
                     }
-                    None => {
-                        let resp = ServerResponse::err(id, -32603, "Internal error".to_string());
-                        let json = serde_json::to_string(&resp).unwrap();
-                        let mut tx = ws_tx.lock().await;
-                        let _ = tx.send(Message::Text(json.into())).await;
+                    "approval.respond" | "session.list" | "session.history" => {
+                        let result = process_request(
+                            &frame.method,
+                            &frame.params,
+                            &runtime,
+                            &store,
+                            &session_mgr,
+                            &subscribed_sessions,
+                            &broker,
+                            session_meta.as_ref(),
+                        )
+                        .await;
+                        let resp = ServerResponse::ok(id, result);
+                        if let Ok(json) = serde_json::to_string(&resp) {
+                            let mut tx = ws_tx.lock().await;
+                            let _ = tx.send(Message::Text(json.into())).await;
+                        }
+                    }
+                    _ => {
+                        let lane = lane.clone();
+                        let ws_tx = ws_tx.clone();
+                        tokio::spawn(async move {
+                            match lane.send(frame.method, frame.params).await {
+                                Some(result) => {
+                                    let resp = ServerResponse::ok(id, result);
+                                    if let Ok(json) = serde_json::to_string(&resp) {
+                                        let mut tx = ws_tx.lock().await;
+                                        let _ = tx.send(Message::Text(json.into())).await;
+                                    }
+                                }
+                                None => {
+                                    let resp = ServerResponse::err(id, -32603, "Internal error".to_string());
+                                    if let Ok(json) = serde_json::to_string(&resp) {
+                                        let mut tx = ws_tx.lock().await;
+                                        let _ = tx.send(Message::Text(json.into())).await;
+                                    }
+                                }
+                            }
+                        });
                     }
                 }
             }
@@ -409,6 +468,7 @@ async fn process_request(
     session_mgr: &SessionManager,
     subscribed: &Mutex<Vec<String>>,
     broker: &ApprovalBroker,
+    session_meta: Option<&Arc<ryvos_memory::SessionMetaStore>>,
 ) -> serde_json::Value {
     match method {
         "agent.send" => {
@@ -419,24 +479,38 @@ async fn process_request(
                 return serde_json::json!({"error": "message is required"});
             }
 
-            let session_id = if session_id_str.is_empty() {
-                let sid = session_mgr.get_or_create("ws:default", "websocket");
-                // Auto-subscribe
-                let mut subs = subscribed.lock().await;
-                if !subs.contains(&sid.to_string()) {
-                    subs.push(sid.to_string());
+            if let Some(m) = params["model_id"].as_str() {
+                let mut current = runtime.current_model_config();
+                current.model_id = m.to_string();
+                if let Some(p) = params["provider"].as_str() {
+                    current.provider = p.to_string();
                 }
-                sid
-            } else {
-                let sid = session_mgr.get_or_create(session_id_str, "webui");
-                let mut subs = subscribed.lock().await;
-                if !subs.contains(&sid.to_string()) {
-                    subs.push(sid.to_string());
-                }
-                sid
-            };
+                runtime.update_model_config(current);
+            }
 
-            match runtime.run(&session_id, message).await {
+            let key = if session_id_str.is_empty() {
+                "ws:default".to_string()
+            } else {
+                session_id_str.to_string()
+            };
+            let session_id = session_mgr.get_or_create(&key, "webui");
+            {
+                let mut subs = subscribed.lock().await;
+                if !subs.contains(&session_id.to_string()) {
+                    subs.push(session_id.to_string());
+                }
+            }
+            if let Some(meta_store) = session_meta {
+                let _ = meta_store.get_or_create(&key, &session_id.to_string(), "webui");
+            }
+
+            let run_res = runtime.run(&session_id, message).await;
+            session_mgr.record_run_stats(&key, 0, "standard");
+            if let Some(meta_store) = session_meta {
+                let _ = meta_store.record_run_stats(&key, 0, "standard");
+            }
+
+            match run_res {
                 Ok(response) => serde_json::json!({
                     "session_id": session_id.to_string(),
                     "response": response,
@@ -447,8 +521,51 @@ async fn process_request(
                 }),
             }
         }
+        "model.get" => {
+            let current = runtime.current_model_config();
+            serde_json::json!({
+                "provider": current.provider,
+                "model_id": current.model_id,
+                "key_count": current.get_api_key_pool().len(),
+            })
+        }
+        "model.set" => {
+            let mut current = runtime.current_model_config();
+            if let Some(p) = params["provider"].as_str() {
+                current.provider = p.to_string();
+            }
+            if let Some(m) = params["model_id"].as_str() {
+                current.model_id = m.to_string();
+            }
+            if let Some(k) = params["api_key"].as_str() {
+                current.api_key = Some(k.to_string());
+            }
+            if let Some(arr) = params["api_keys"].as_array() {
+                current.api_keys = arr.iter().filter_map(|v| v.as_str().map(String::from)).collect();
+            }
+            runtime.update_model_config(current.clone());
+            serde_json::json!({
+                "ok": true,
+                "provider": current.provider,
+                "model_id": current.model_id,
+                "key_count": current.get_api_key_pool().len(),
+            })
+        }
+        "session.create" => {
+            let title = params["title"].as_str().unwrap_or("New Chat");
+            let sid = format!("webui:{}", uuid::Uuid::new_v4().to_string().replace('-', "")[..12].to_string());
+            let _session_id = session_mgr.get_or_create(&sid, "webui");
+            let mut subs = subscribed.lock().await;
+            if !subs.contains(&sid) {
+                subs.push(sid.clone());
+            }
+            serde_json::json!({
+                "session_id": sid,
+                "title": title
+            })
+        }
         "agent.cancel" => {
-            runtime.cancel_token().cancel();
+            runtime.cancel_active_run();
             serde_json::json!({"cancelled": true})
         }
         "session.list" => {

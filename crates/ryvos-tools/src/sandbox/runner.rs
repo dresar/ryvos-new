@@ -62,6 +62,7 @@ pub async fn execute_in_sandbox(
 
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
+    cmd.kill_on_drop(true);
 
     let child = cmd.spawn().map_err(|e| RyvosError::ToolExecution {
         tool: "bash".to_string(),

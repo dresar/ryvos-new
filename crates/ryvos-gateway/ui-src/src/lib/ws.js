@@ -3,11 +3,14 @@ import { writable } from 'svelte/store';
 export const connectionStatus = writable('disconnected');
 export const activityFeed = writable([]);
 export const streamingText = writable('');
+export const currentModelInfo = writable({ provider: 'gemini', model_id: 'gemini-3.6-flash', key_count: 0 });
 
 let ws = null;
 let reconnectTimer = null;
 let retryCount = 0;
 const MAX_RETRY_DELAY = 30000;
+const pendingRequests = new Map();
+let nextRequestId = 1;
 
 export function connect(apiKey) {
   if (ws) ws.close();
@@ -27,10 +30,20 @@ export function connect(apiKey) {
   ws.onopen = () => {
     connectionStatus.set('connected');
     retryCount = 0;
+    sendWs('model.get').then(info => {
+      if (info && info.provider) {
+        currentModelInfo.set(info);
+      }
+    }).catch(() => {});
   };
 
   ws.onclose = () => {
     connectionStatus.set('disconnected');
+    for (const [id, req] of pendingRequests.entries()) {
+      clearTimeout(req.timer);
+      req.reject(new Error('WebSocket disconnected'));
+    }
+    pendingRequests.clear();
     const delay = Math.min(1000 * Math.pow(2, retryCount), MAX_RETRY_DELAY);
     retryCount++;
     reconnectTimer = setTimeout(() => connect(apiKey), delay);
@@ -41,7 +54,21 @@ export function connect(apiKey) {
   ws.onmessage = (e) => {
     try {
       const msg = JSON.parse(e.data);
-      if (msg.type === 'event') {
+      if (msg.type === 'response' && msg.id) {
+        const idStr = String(msg.id);
+        const req = pendingRequests.get(idStr);
+        if (req) {
+          clearTimeout(req.timer);
+          pendingRequests.delete(idStr);
+          if (msg.error) {
+            req.reject(new Error(msg.error.message || 'Server error'));
+          } else if (msg.result && msg.result.error) {
+            req.reject(new Error(msg.result.error));
+          } else {
+            req.resolve(msg.result);
+          }
+        }
+      } else if (msg.type === 'event') {
         const event = msg.event || {};
         if (event.kind === 'text_delta') {
           streamingText.update(t => t + (event.text || ''));
@@ -102,11 +129,23 @@ export function resetStreamingText() {
 }
 
 export function sendWs(method, params = {}) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify({
-    type: 'request',
-    id: Date.now().toString(),
-    method,
-    params,
-  }));
+  return new Promise((resolve, reject) => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      reject(new Error('WebSocket is not connected'));
+      return;
+    }
+    const id = String(nextRequestId++);
+    const timer = setTimeout(() => {
+      pendingRequests.delete(id);
+      reject(new Error(`Request timed out: ${method}`));
+    }, 120000);
+
+    pendingRequests.set(id, { resolve, reject, timer });
+    ws.send(JSON.stringify({
+      type: 'request',
+      id,
+      method,
+      params,
+    }));
+  });
 }

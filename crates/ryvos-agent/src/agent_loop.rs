@@ -6,7 +6,7 @@ use futures::StreamExt;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
-use ryvos_core::config::AppConfig;
+use ryvos_core::config::{AppConfig, ModelConfig};
 use ryvos_core::error::{Result, RyvosError};
 use ryvos_core::event::EventBus;
 use ryvos_core::goal::Goal;
@@ -80,6 +80,7 @@ pub struct AgentRuntime {
     store: Arc<dyn SessionStore>,
     event_bus: Arc<EventBus>,
     cancel: CancellationToken,
+    active_run_cancel: Arc<std::sync::Mutex<CancellationToken>>,
     journal: Option<Arc<FailureJournal>>,
     guardian_hints: Option<Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<GuardianAction>>>>,
     checkpoint_store: Option<Arc<CheckpointStore>>,
@@ -92,8 +93,8 @@ pub struct AgentRuntime {
     pub spawner: Arc<tokio::sync::Mutex<Option<Arc<dyn ryvos_core::types::AgentSpawner>>>>,
     /// OpenViking client for hierarchical memory (set after Arc wrapping if auto-started).
     pub viking_client: Arc<tokio::sync::Mutex<Option<Arc<ryvos_memory::VikingClient>>>>,
-    /// Safety memory for self-learning lessons (injected into context each run).
     safety_memory: Option<Arc<crate::safety_memory::SafetyMemory>>,
+    model_override: Arc<std::sync::RwLock<Option<ModelConfig>>>,
 }
 
 impl AgentRuntime {
@@ -112,6 +113,7 @@ impl AgentRuntime {
             store,
             event_bus,
             cancel: CancellationToken::new(),
+            active_run_cancel: Arc::new(std::sync::Mutex::new(CancellationToken::new())),
             journal: None,
             guardian_hints: None,
             checkpoint_store: None,
@@ -121,10 +123,10 @@ impl AgentRuntime {
             spawner: Arc::new(tokio::sync::Mutex::new(None)),
             viking_client: Arc::new(tokio::sync::Mutex::new(None)),
             safety_memory: None,
+            model_override: Arc::new(std::sync::RwLock::new(None)),
         }
     }
 
-    /// Create an AgentRuntime with a SecurityGate intercepting tool calls.
     pub fn new_with_gate(
         config: AppConfig,
         llm: Arc<dyn LlmClient>,
@@ -132,7 +134,7 @@ impl AgentRuntime {
         store: Arc<dyn SessionStore>,
         event_bus: Arc<EventBus>,
     ) -> Self {
-        let tools = Arc::new(tokio::sync::RwLock::new(ToolRegistry::new())); // unused when gate is present
+        let tools = Arc::new(tokio::sync::RwLock::new(ToolRegistry::new()));
         Self {
             config,
             llm,
@@ -141,6 +143,7 @@ impl AgentRuntime {
             store,
             event_bus,
             cancel: CancellationToken::new(),
+            active_run_cancel: Arc::new(std::sync::Mutex::new(CancellationToken::new())),
             journal: None,
             guardian_hints: None,
             checkpoint_store: None,
@@ -150,7 +153,23 @@ impl AgentRuntime {
             spawner: Arc::new(tokio::sync::Mutex::new(None)),
             viking_client: Arc::new(tokio::sync::Mutex::new(None)),
             safety_memory: None,
+            model_override: Arc::new(std::sync::RwLock::new(None)),
         }
+    }
+
+    pub fn update_model_config(&self, model: ModelConfig) {
+        if let Ok(mut lock) = self.model_override.write() {
+            *lock = Some(model);
+        }
+    }
+
+    pub fn current_model_config(&self) -> ModelConfig {
+        if let Ok(lock) = self.model_override.read() {
+            if let Some(ref m) = *lock {
+                return m.clone();
+            }
+        }
+        self.config.model.clone()
     }
 
     /// Set the safety memory for self-learning lessons injected into context.
@@ -196,7 +215,25 @@ impl AgentRuntime {
 
     /// Get a cancellation token for this runtime.
     pub fn cancel_token(&self) -> CancellationToken {
-        self.cancel.clone()
+        if let Ok(guard) = self.active_run_cancel.lock() {
+            guard.clone()
+        } else {
+            self.cancel.clone()
+        }
+    }
+
+    /// Cancel the currently active run without disabling the runtime for future runs.
+    pub fn cancel_active_run(&self) {
+        if let Ok(guard) = self.active_run_cancel.lock() {
+            guard.cancel();
+        }
+    }
+
+    /// Reset the active cancellation token.
+    pub fn reset_cancel_token(&self) {
+        if let Ok(mut guard) = self.active_run_cancel.lock() {
+            *guard = CancellationToken::new();
+        }
     }
 
     /// Get tool definitions (from gate if present, else from registry).
@@ -247,9 +284,13 @@ impl AgentRuntime {
         let max_turns = self.config.agent.max_turns;
         let max_duration = Duration::from_secs(self.config.agent.max_duration_secs);
 
-        // Apply CLI session ID override to model config for --resume
-        let mut model_config = self.config.model.clone();
-        if let Some(cli_id) = self.cli_session_override.lock().unwrap().take() {
+        let run_cancel = CancellationToken::new();
+        if let Ok(mut guard) = self.active_run_cancel.lock() {
+            *guard = run_cancel.clone();
+        }
+
+        let mut model_config = self.current_model_config();
+        if let Some(cli_id) = self.cli_session_override.lock().unwrap_or_else(|e| e.into_inner()).take() {
             info!(cli_session = %cli_id, "Applying CLI session override for --resume");
             model_config.cli_session_id = Some(cli_id);
         }
@@ -348,16 +389,16 @@ impl AgentRuntime {
 
         // Record run start in cost store
         if let Some(ref cost_store) = self.cost_store {
-            let billing_type = if self.config.model.provider == "claude-code"
-                || self.config.model.provider == "claude-cli"
-                || self.config.model.provider == "claude-sub"
+            let billing_type = if model_config.provider == "claude-code"
+                || model_config.provider == "claude-cli"
+                || model_config.provider == "claude-sub"
             {
                 ryvos_llm::providers::claude_code::ClaudeCodeClient::detect_billing_type(
-                    &self.config.model,
+                    &model_config,
                 )
-            } else if self.config.model.provider == "copilot"
-                || self.config.model.provider == "github-copilot"
-                || self.config.model.provider == "copilot-cli"
+            } else if model_config.provider == "copilot"
+                || model_config.provider == "github-copilot"
+                || model_config.provider == "copilot-cli"
             {
                 BillingType::Subscription
             } else {
@@ -366,8 +407,8 @@ impl AgentRuntime {
             if let Err(e) = cost_store.record_run(
                 &run_id,
                 &session_id.0,
-                &self.config.model.model_id,
-                &self.config.model.provider,
+                &model_config.model_id,
+                &model_config.provider,
                 billing_type,
             ) {
                 warn!(error = %e, "Failed to record run start");
@@ -510,7 +551,7 @@ impl AgentRuntime {
 
         for turn in 0..max_turns {
             // Check cancellation
-            if self.cancel.is_cancelled() {
+            if self.cancel.is_cancelled() || run_cancel.is_cancelled() {
                 return Err(RyvosError::Cancelled);
             }
 
@@ -543,6 +584,7 @@ impl AgentRuntime {
             let stream_result = tokio::select! {
                 result = self.llm.chat_stream(&model_config, messages.clone(), &tool_defs) => result,
                 _ = self.cancel.cancelled() => return Err(RyvosError::Cancelled),
+                _ = run_cancel.cancelled() => return Err(RyvosError::Cancelled),
             };
 
             let mut stream = stream_result?;
@@ -554,7 +596,7 @@ impl AgentRuntime {
             let mut stop_reason = None;
 
             while let Some(delta) = stream.next().await {
-                if self.cancel.is_cancelled() {
+                if self.cancel.is_cancelled() || run_cancel.is_cancelled() {
                     return Err(RyvosError::Cancelled);
                 }
 

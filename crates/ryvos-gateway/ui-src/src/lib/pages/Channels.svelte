@@ -19,61 +19,55 @@
         channels = raw;
       }
     } catch (e) {
-      error = e.message;
+      error = e.message || 'Failed to fetch communication channels';
     } finally {
       loading = false;
     }
   });
 </script>
 
-<div>
-  <div class="mb-6">
-    <h2 class="text-2xl font-heading font-bold tracking-tight text-[#1B2943]">Channels</h2>
-    <p class="text-[#778399] text-sm mt-1">Integration messaging adapters and communication channels</p>
+<div class="space-y-6">
+  <div>
+    <h2 class="text-2xl font-bold tracking-tight text-[var(--color-text-main)]">Communication Channels</h2>
+    <p class="text-sm text-[var(--color-text-muted)] mt-1">Status of messaging adapters, gateways, and external integrations</p>
   </div>
 
   {#if loading}
-    <div class="card-soft p-8 text-center">
-      <p class="text-[#778399] text-sm animate-pulse">Loading channels...</p>
+    <div class="neu-card p-12 text-center">
+      <div class="inline-block w-8 h-8 border-4 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin mb-3"></div>
+      <p class="text-sm text-[var(--color-text-muted)]">Checking channel statuses...</p>
     </div>
   {:else if error}
-    <div class="card-soft p-12 text-center">
-      <p class="text-[#778399] text-sm">Channels endpoint not available: {error}</p>
+    <div class="neu-card p-8 border-l-4 border-[var(--color-danger)] text-left">
+      <h3 class="text-base font-bold text-[var(--color-danger)] mb-1">Channel Query Error</h3>
+      <p class="text-sm text-[var(--color-text-muted)]">{error}</p>
     </div>
   {:else if channels.length === 0}
-    <div class="card-soft p-12 text-center">
-      <div class="w-12 h-12 rounded-2xl bg-[#E8EEFF] text-[#2448CB] flex items-center justify-center mx-auto mb-3">
-        <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 010 8.49m-8.48-.01a6 6 0 010-8.49m11.31-2.82a10 10 0 010 14.14m-14.14 0a10 10 0 010-14.14"/></svg>
-      </div>
-      <h3 class="text-base font-semibold text-[#1B2943] mb-1">No channels configured</h3>
-      <p class="text-xs text-[#778399] max-w-sm mx-auto">Telegram, Discord, and WhatsApp adapters configured in config.toml will appear here.</p>
+    <div class="neu-card p-12 text-center">
+      <p class="text-base font-semibold text-[var(--color-text-main)] mb-1">No Channels Configured</p>
+      <p class="text-xs text-[var(--color-text-muted)] max-w-sm mx-auto">Telegram, Discord, and Slack adapters configured in config.toml will appear here.</p>
     </div>
   {:else}
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       {#each channels as channel}
-        <div class="card-soft p-5 transition-all duration-200 hover:shadow-soft-float">
-          <div class="flex items-center justify-between mb-3">
-            <h3 class="text-sm font-bold text-[#1B2943]">{channel.name || 'Unknown'}</h3>
-            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold rounded-full
-              {channel.status === 'connected' || channel.status === 'active' || channel.status === 'ok'
-                ? 'bg-[#219B70]/10 text-[#219B70]'
-                : channel.status === 'error'
-                  ? 'bg-[#D94B5B]/10 text-[#D94B5B]'
-                  : 'bg-[#F4F6FF] text-[#778399]'}">
-              <span class="w-2 h-2 rounded-full
-                {channel.status === 'connected' || channel.status === 'active' || channel.status === 'ok'
-                  ? 'bg-[#219B70]'
-                  : channel.status === 'error'
-                    ? 'bg-[#D94B5B]'
-                    : 'bg-[#778399]'}"></span>
-              {channel.status || 'unknown'}
+        {@const statusLower = (channel.status || '').toLowerCase()}
+        {@const isOnline = statusLower === 'connected' || statusLower === 'active' || statusLower === 'ok'}
+        {@const isErr = statusLower === 'error' || statusLower === 'failed'}
+        <div class="neu-card p-5 space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-bold text-[var(--color-text-main)]">{channel.name || 'Unknown Channel'}</h3>
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-full {isOnline ? 'badge-success' : isErr ? 'badge-danger' : 'badge-neutral'}">
+              <span class="w-1.5 h-1.5 rounded-full {isOnline ? 'bg-[var(--color-success)]' : isErr ? 'bg-[var(--color-danger)]' : 'bg-[var(--color-text-muted)]'}"></span>
+              {channel.status || 'Offline'}
             </span>
           </div>
           {#if channel.type}
-            <p class="text-xs text-[#64748B]">Type: <span class="font-mono text-[#1B2943]">{channel.type}</span></p>
+            <div class="text-xs text-[var(--color-text-muted)]">
+              Protocol: <span class="font-mono text-[var(--color-text-main)]">{channel.type}</span>
+            </div>
           {/if}
           {#if channel.description}
-            <p class="text-xs text-[#778399] mt-1">{channel.description}</p>
+            <p class="text-xs text-[var(--color-text-muted)] leading-relaxed">{channel.description}</p>
           {/if}
         </div>
       {/each}

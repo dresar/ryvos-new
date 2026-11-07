@@ -31,31 +31,36 @@ pub async fn list_sessions(
     if !auth::has_viewer_access(&auth_result.role) {
         return Err(StatusCode::FORBIDDEN);
     }
-    let keys = state.session_mgr.list();
+    let in_memory_keys = state.session_mgr.list();
+    let mut session_map: std::collections::HashMap<String, serde_json::Value> =
+        std::collections::HashMap::new();
 
     if let Some(ref meta_store) = state.session_meta {
-        let sessions: Vec<serde_json::Value> = keys
-            .iter()
-            .map(|key| {
-                let meta = meta_store.get(key).ok().flatten();
-                if let Some(m) = meta {
+        if let Ok(meta_list) = meta_store.list() {
+            for m in meta_list {
+                session_map.insert(
+                    m.session_key.clone(),
                     serde_json::json!({
-                        "id": key,
+                        "id": m.session_key,
                         "session_id": m.session_id,
                         "channel": m.channel,
                         "last_active": m.last_active,
                         "total_runs": m.total_runs,
                         "total_tokens": m.total_tokens,
-                    })
-                } else {
-                    serde_json::json!({ "id": key })
-                }
-            })
-            .collect();
-        return Ok(Json(serde_json::json!({ "sessions": sessions })));
+                    }),
+                );
+            }
+        }
     }
 
-    Ok(Json(serde_json::json!({ "sessions": keys })))
+    for key in in_memory_keys {
+        session_map.entry(key.clone()).or_insert_with(|| {
+            serde_json::json!({ "id": key })
+        });
+    }
+
+    let sessions: Vec<serde_json::Value> = session_map.into_values().collect();
+    Ok(Json(serde_json::json!({ "sessions": sessions })))
 }
 
 #[derive(Deserialize)]
@@ -127,7 +132,18 @@ pub async fn send_message(
     }
 
     let session_id = SessionId::from_string(&id);
-    match state.runtime.run(&session_id, &body.message).await {
+    let session_key = id.clone();
+    if let Some(ref meta_store) = state.session_meta {
+        let _ = meta_store.get_or_create(&session_key, &session_id.to_string(), "webui");
+    }
+
+    let run_res = state.runtime.run(&session_id, &body.message).await;
+    state.session_mgr.record_run_stats(&session_key, 0, "standard");
+    if let Some(ref meta_store) = state.session_meta {
+        let _ = meta_store.record_run_stats(&session_key, 0, "standard");
+    }
+
+    match run_res {
         Ok(response) => Ok(Json(serde_json::json!({
             "session_id": session_id.to_string(),
             "response": response,
@@ -179,10 +195,10 @@ pub async fn metrics(
 
     let (total_runs, total_tokens, total_cost_cents) =
         if let Some(ref cost_store) = state.cost_store {
-            let (_runs, _) = cost_store.run_history(0, 0).unwrap_or((vec![], 0));
-            let monthly = cost_store.monthly_spend_cents().unwrap_or(0);
             let total_count = cost_store.run_history(1, 0).map(|(_, t)| t).unwrap_or(0);
-            (total_count, 0u64, monthly)
+            let tokens = cost_store.total_tokens_all_time().unwrap_or(0);
+            let monthly = cost_store.monthly_spend_cents().unwrap_or(0);
+            (total_count, tokens, monthly)
         } else {
             (0, 0, 0)
         };
@@ -452,6 +468,7 @@ async fn handle_ws(socket: WebSocket, state: Arc<AppState>) {
         state.store.clone(),
         state.session_mgr.clone(),
         state.broker.clone(),
+        state.session_meta.clone(),
     )
     .await;
     debug!("WebSocket client disconnected");
@@ -929,7 +946,16 @@ pub async fn get_model(
         table.remove("token");
     }
 
-    Ok(Json(serde_json::json!({ "model": model })))
+    let mut resp = match serde_json::to_value(&model) {
+        Ok(serde_json::Value::Object(map)) => map,
+        _ => serde_json::Map::new(),
+    };
+    resp.insert(
+        "model".to_string(),
+        serde_json::to_value(&model).unwrap_or_default(),
+    );
+
+    Ok(Json(serde_json::Value::Object(resp)))
 }
 
 #[derive(Deserialize)]
@@ -947,64 +973,92 @@ pub async fn list_models(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let path = state.config_path.as_ref().ok_or(StatusCode::NOT_FOUND)?;
-    let content = tokio::fs::read_to_string(path)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let config: toml::Value =
-        toml::from_str(&content).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let current_mc = state.runtime.current_model_config();
+    let current_provider = current_mc.provider.clone();
+    let current_model_id = current_mc.model_id.clone();
+    let key_count = current_mc.get_api_key_pool().len();
 
-    let provider = q.provider.or_else(|| {
-        config
-            .get("model")
-            .and_then(|m| m.get("provider"))
-            .and_then(|p| p.as_str())
-            .map(String::from)
-    });
+    let provider = q.provider.unwrap_or(current_provider);
 
-    let models = match provider.as_deref() {
-        Some("anthropic") | Some("claude-code") | Some("claude-cli") | Some("claude-sub") => {
+    let models = match provider.as_str() {
+        "anthropic" | "claude" | "claude-code" | "claude-cli" | "claude-sub" => {
             vec![
-                serde_json::json!({"id": "claude-opus-4-20250514", "name": "Claude Opus 4"}),
+                serde_json::json!({"id": "claude-3-7-sonnet", "name": "Claude 3.7 Sonnet (2026)"}),
                 serde_json::json!({"id": "claude-sonnet-4-20250514", "name": "Claude Sonnet 4"}),
-                serde_json::json!({"id": "claude-haiku-4-20250506", "name": "Claude Haiku 4"}),
+                serde_json::json!({"id": "claude-opus-4-20250514", "name": "Claude Opus 4"}),
                 serde_json::json!({"id": "claude-3-5-sonnet-20241022", "name": "Claude 3.5 Sonnet"}),
+                serde_json::json!({"id": "claude-3-5-haiku-20241022", "name": "Claude 3.5 Haiku"}),
             ]
         }
-        Some("openai") => {
+        "openai" => {
             vec![
-                serde_json::json!({"id": "gpt-4.1", "name": "GPT-4.1"}),
-                serde_json::json!({"id": "gpt-4.1-mini", "name": "GPT-4.1 Mini"}),
+                serde_json::json!({"id": "gpt-4.5-preview", "name": "GPT-4.5 Preview"}),
                 serde_json::json!({"id": "gpt-4o", "name": "GPT-4o"}),
                 serde_json::json!({"id": "gpt-4o-mini", "name": "GPT-4o Mini"}),
+                serde_json::json!({"id": "o3-mini", "name": "o3-mini"}),
+                serde_json::json!({"id": "o1", "name": "o1"}),
             ]
         }
-        Some("gemini" | "google") => {
+        "gemini" | "google" => {
             vec![
-                serde_json::json!({"id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro"}),
+                serde_json::json!({"id": "gemini-3.6-flash", "name": "Gemini 3.6 Flash (2026)"}),
                 serde_json::json!({"id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash"}),
+                serde_json::json!({"id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro"}),
                 serde_json::json!({"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash"}),
             ]
         }
-        Some("groq") => {
+        "deepseek" => {
+            vec![
+                serde_json::json!({"id": "deepseek-chat", "name": "DeepSeek-V3"}),
+                serde_json::json!({"id": "deepseek-reasoner", "name": "DeepSeek-R1"}),
+            ]
+        }
+        "groq" => {
             vec![
                 serde_json::json!({"id": "llama-3.3-70b-versatile", "name": "Llama 3.3 70B"}),
                 serde_json::json!({"id": "llama-3.1-8b-instant", "name": "Llama 3.1 8B"}),
                 serde_json::json!({"id": "mixtral-8x7b-32768", "name": "Mixtral 8x7B"}),
             ]
         }
-        _ => vec![serde_json::json!({"id": "unknown", "name": "Unknown provider"})],
+        "openrouter" => {
+            vec![
+                serde_json::json!({"id": "google/gemini-2.5-flash", "name": "OpenRouter: Gemini 2.5 Flash"}),
+                serde_json::json!({"id": "anthropic/claude-3.7-sonnet", "name": "OpenRouter: Claude 3.7 Sonnet"}),
+                serde_json::json!({"id": "deepseek/deepseek-chat", "name": "OpenRouter: DeepSeek-V3"}),
+            ]
+        }
+        "ollama" => {
+            vec![
+                serde_json::json!({"id": "llama3.2", "name": "Llama 3.2 (Local)"}),
+                serde_json::json!({"id": "qwen2.5:coder", "name": "Qwen 2.5 Coder (Local)"}),
+            ]
+        }
+        _ => vec![serde_json::json!({"id": "custom", "name": "Custom Model"})],
     };
 
     Ok(Json(serde_json::json!({
         "provider": provider,
-        "models": models
+        "model_id": current_model_id,
+        "models": models,
+        "key_count": key_count,
+        "all_providers": [
+            {"id": "gemini", "name": "Google Gemini"},
+            {"id": "anthropic", "name": "Anthropic Claude"},
+            {"id": "openai", "name": "OpenAI"},
+            {"id": "deepseek", "name": "DeepSeek"},
+            {"id": "groq", "name": "Groq"},
+            {"id": "openrouter", "name": "OpenRouter"},
+            {"id": "ollama", "name": "Ollama (Local)"}
+        ]
     })))
 }
 
 #[derive(Deserialize)]
 pub struct UpdateModelBody {
+    provider: Option<String>,
     model_id: Option<String>,
+    api_key: Option<String>,
+    api_keys: Option<Vec<String>>,
     temperature: Option<f32>,
     max_tokens: Option<u32>,
     thinking: Option<String>,
@@ -1018,37 +1072,69 @@ pub async fn put_model(
     if !auth::has_operator_access(&auth_result.role) {
         return Err(StatusCode::FORBIDDEN);
     }
-    let path = state.config_path.as_ref().ok_or(StatusCode::NOT_FOUND)?;
-    let content = tokio::fs::read_to_string(path)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let mut config: toml::Value =
-        toml::from_str(&content).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut current_mc = state.runtime.current_model_config();
+    if let Some(ref p) = body.provider {
+        current_mc.provider = p.clone();
+    }
+    if let Some(ref m) = body.model_id {
+        current_mc.model_id = m.clone();
+    }
+    if let Some(ref k) = body.api_key {
+        current_mc.api_key = Some(k.clone());
+    }
+    if let Some(ref arr) = body.api_keys {
+        current_mc.api_keys = arr.clone();
+    }
+    if let Some(t) = body.temperature {
+        current_mc.temperature = t;
+    }
+    if let Some(m) = body.max_tokens {
+        current_mc.max_tokens = m;
+    }
 
-    if let Some(model) = config.get_mut("model").and_then(|m| m.as_table_mut()) {
-        if let Some(v) = &body.model_id {
-            model.insert("model_id".to_string(), toml::Value::String(v.clone()));
-        }
-        if let Some(v) = body.temperature {
-            model.insert("temperature".to_string(), toml::Value::Float(v as f64));
-        }
-        if let Some(v) = body.max_tokens {
-            model.insert("max_tokens".to_string(), toml::Value::Integer(v as i64));
-        }
-        if let Some(v) = &body.thinking {
-            model.insert("thinking".to_string(), toml::Value::String(v.clone()));
+    state.runtime.update_model_config(current_mc.clone());
+
+    if let Some(ref path) = state.config_path {
+        if let Ok(content) = tokio::fs::read_to_string(path).await {
+            if let Ok(mut config) = toml::from_str::<toml::Value>(&content) {
+                if let Some(model) = config.get_mut("model").and_then(|m| m.as_table_mut()) {
+                    if let Some(ref v) = body.provider {
+                        model.insert("provider".to_string(), toml::Value::String(v.clone()));
+                    }
+                    if let Some(ref v) = body.model_id {
+                        model.insert("model_id".to_string(), toml::Value::String(v.clone()));
+                    }
+                    if let Some(ref v) = body.api_key {
+                        model.insert("api_key".to_string(), toml::Value::String(v.clone()));
+                    }
+                    if let Some(ref arr) = body.api_keys {
+                        let toml_arr = arr.iter().map(|s| toml::Value::String(s.clone())).collect();
+                        model.insert("api_keys".to_string(), toml::Value::Array(toml_arr));
+                    }
+                    if let Some(v) = body.temperature {
+                        model.insert("temperature".to_string(), toml::Value::Float(v as f64));
+                    }
+                    if let Some(v) = body.max_tokens {
+                        model.insert("max_tokens".to_string(), toml::Value::Integer(v as i64));
+                    }
+                    if let Some(v) = &body.thinking {
+                        model.insert("thinking".to_string(), toml::Value::String(v.clone()));
+                    }
+                }
+                if let Ok(new_content) = toml::to_string_pretty(&config) {
+                    let _ = tokio::fs::write(path, &new_content).await;
+                }
+            }
         }
     }
 
-    let new_content =
-        toml::to_string_pretty(&config).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    tokio::fs::write(path, &new_content)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(Json(
-        serde_json::json!({ "ok": true, "note": "Restart required for changes to take effect" }),
-    ))
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "provider": current_mc.provider,
+        "model_id": current_mc.model_id,
+        "key_count": current_mc.get_api_key_pool().len(),
+    })))
 }
 
 

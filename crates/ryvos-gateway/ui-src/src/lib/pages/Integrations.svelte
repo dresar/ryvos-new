@@ -13,14 +13,14 @@
   let setupError = $state('');
 
   const setupLinks = {
-    gmail: { url: 'https://console.cloud.google.com/apis/credentials', label: 'Google Cloud Console -> APIs & Services -> Credentials -> Create OAuth Client ID' },
-    calendar: { url: 'https://console.cloud.google.com/apis/credentials', label: 'Same as Gmail: Google OAuth covers Calendar + Drive' },
-    drive: { url: 'https://console.cloud.google.com/apis/credentials', label: 'Same as Gmail: Google OAuth covers Calendar + Drive' },
-    slack: { url: 'https://api.slack.com/apps', label: 'Slack API -> Your Apps -> Create New App -> OAuth & Permissions' },
-    github: { url: 'https://github.com/settings/developers', label: 'GitHub -> Settings -> Developer Settings -> OAuth Apps -> New' },
-    jira: { url: 'https://developer.atlassian.com/console/myapps/', label: 'Atlassian Developer -> My Apps -> Create -> OAuth 2.0' },
-    linear: { url: 'https://linear.app/settings/api', label: 'Linear -> Settings -> API -> Create OAuth Application' },
-    notion: { url: 'https://www.notion.so/my-integrations', label: 'Notion -> My Integrations -> Create New Integration -> Copy Internal Token' },
+    gmail: { url: 'https://console.cloud.google.com/apis/credentials', label: 'Google Cloud Console > APIs and Services > Credentials > Create OAuth Client ID' },
+    calendar: { url: 'https://console.cloud.google.com/apis/credentials', label: 'Google Cloud Console: OAuth covers Calendar and Drive' },
+    drive: { url: 'https://console.cloud.google.com/apis/credentials', label: 'Google Cloud Console: OAuth covers Calendar and Drive' },
+    slack: { url: 'https://api.slack.com/apps', label: 'Slack API > Your Apps > Create New App > OAuth and Permissions' },
+    github: { url: 'https://github.com/settings/developers', label: 'GitHub > Settings > Developer Settings > OAuth Apps > New' },
+    jira: { url: 'https://developer.atlassian.com/console/myapps/', label: 'Atlassian Developer > My Apps > Create > OAuth 2.0' },
+    linear: { url: 'https://linear.app/settings/api', label: 'Linear > Settings > API > Create OAuth Application' },
+    notion: { url: 'https://www.notion.so/my-integrations', label: 'Notion > My Integrations > Create New Integration > Copy Internal Token' },
   };
 
   onMount(async () => {
@@ -43,7 +43,7 @@
       const data = await apiFetch('/api/integrations');
       apps = data.apps || [];
     } catch (e) {
-      error = e.message;
+      error = e.message || 'Failed to load integrations';
     } finally {
       loading = false;
     }
@@ -73,15 +73,15 @@
 
       if (configKey === 'notion') {
         if (!setupForm.api_key) { setupError = 'API key is required'; setupSaving = false; return; }
-        content += `\n\n[integrations.notion]\napi_key = "${setupForm.api_key}"\n`;
+        content += '\n\n[integrations.notion]\napi_key = "' + setupForm.api_key + '"\n';
       } else {
-        if (!setupForm.client_id || !setupForm.client_secret) { setupError = 'Both fields are required'; setupSaving = false; return; }
-        if (content.includes(`[integrations.${configKey}]`)) {
-          setupError = `[integrations.${configKey}] already exists in config.toml. Edit it via the Config page.`;
+        if (!setupForm.client_id || !setupForm.client_secret) { setupError = 'Both client ID and secret are required'; setupSaving = false; return; }
+        if (content.includes('[integrations.' + configKey + ']')) {
+          setupError = '[integrations.' + configKey + '] already exists in config.toml. Edit via Config page.';
           setupSaving = false;
           return;
         }
-        content += `\n\n[integrations.${configKey}]\nclient_id = "${setupForm.client_id}"\nclient_secret = "${setupForm.client_secret}"\n`;
+        content += '\n\n[integrations.' + configKey + ']\nclient_id = "' + setupForm.client_id + '"\nclient_secret = "' + setupForm.client_secret + '"\n';
       }
 
       const res = await apiFetch('/api/config', {
@@ -91,13 +91,13 @@
       if (res.error) {
         setupError = res.error;
       } else {
-        successApp = `${app.name} configured! Restart the daemon, then click Connect.`;
+        successApp = app.name + ' configured. Restart the daemon, then click Connect.';
         setTimeout(() => { successApp = ''; }, 6000);
         closeSetup();
         await loadApps();
       }
     } catch (e) {
-      setupError = e.message.includes('403') ? 'Admin access required to save config' : e.message;
+      setupError = e.message.includes('403') ? 'Admin access required to save configuration' : e.message;
     } finally {
       setupSaving = false;
     }
@@ -106,18 +106,18 @@
   async function connectApp(app) {
     actionInProgress = app.id;
     try {
-      const data = await apiFetch(`/api/integrations/${app.id}/connect`, { method: 'POST' });
+      const data = await apiFetch('/api/integrations/' + app.id + '/connect', { method: 'POST' });
       if (data.error) {
         error = data.error;
       } else if (data.redirect_url) {
         window.open(data.redirect_url, '_blank', 'width=600,height=700');
       } else if (data.connected) {
-        successApp = app.name;
+        successApp = app.name + ' successfully connected';
         setTimeout(() => { successApp = ''; }, 4000);
         await loadApps();
       }
     } catch (e) {
-      error = `Failed to connect ${app.name}: ${e.message}`;
+      error = 'Failed to connect ' + app.name + ': ' + e.message;
     } finally {
       actionInProgress = '';
     }
@@ -126,55 +126,63 @@
   async function disconnectApp(app) {
     actionInProgress = app.id;
     try {
-      await apiFetch(`/api/integrations/${app.id}`, { method: 'DELETE' });
+      await apiFetch('/api/integrations/' + app.id, { method: 'DELETE' });
       await loadApps();
     } catch (e) {
-      error = `Failed to disconnect ${app.name}: ${e.message}`;
+      error = 'Failed to disconnect ' + app.name + ': ' + e.message;
     } finally {
       actionInProgress = '';
     }
   }
 </script>
 
-<div>
-  <div class="mb-6">
-    <h2 class="text-2xl font-heading font-bold tracking-tight text-[#1B2943]">Integrations</h2>
-    <p class="text-[#778399] text-sm mt-1">Connect external services and OAuth tools to your autonomous agent</p>
+<div class="space-y-6">
+  <div>
+    <h2 class="text-2xl font-bold tracking-tight text-[var(--color-text-main)]">External Integrations</h2>
+    <p class="text-sm text-[var(--color-text-muted)] mt-1">Connect SaaS platforms, OAuth credentials, and workspace services</p>
   </div>
 
   {#if successApp}
-    <div class="mb-5 px-4 py-3 bg-[#219B70]/10 border border-[#219B70] rounded-xl text-sm text-[#1B2943] flex items-center justify-between">
+    <div class="p-4 rounded-xl bg-green-500/10 border border-green-500/20 text-sm text-[var(--color-text-main)] flex items-center justify-between">
       <span>{successApp}</span>
-      <button type="button" onclick={() => successApp = ''} class="text-[#778399] hover:text-[#1B2943] text-xs font-semibold uppercase">Dismiss</button>
+      <button type="button" onclick={() => { successApp = ''; }} class="text-xs font-semibold uppercase text-[var(--color-text-muted)]">Dismiss</button>
     </div>
   {/if}
 
   {#if error}
-    <div class="mb-5 px-4 py-3 bg-[#D94B5B]/10 border border-[#D94B5B] rounded-xl text-sm text-[#1B2943] flex items-center justify-between">
+    <div class="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-[var(--color-danger)] flex items-center justify-between">
       <span>{error}</span>
-      <button type="button" onclick={() => error = ''} class="text-[#778399] hover:text-[#1B2943] text-xs font-semibold uppercase">Dismiss</button>
+      <button type="button" onclick={() => { error = ''; }} class="text-xs font-semibold uppercase text-[var(--color-text-muted)]">Dismiss</button>
     </div>
   {/if}
 
   {#if loading}
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
       {#each Array(4) as _}
-        <div class="card-soft p-5 min-h-[120px] animate-pulse"></div>
+        <div class="neu-card p-6 min-h-[140px] animate-pulse"></div>
       {/each}
     </div>
   {:else}
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
       {#each apps as app (app.id)}
-        <div class="card-soft p-5 transition-all duration-200">
-          <div class="flex items-start justify-between mb-3">
+        <div class="neu-card p-6 space-y-4">
+          <div class="flex items-start justify-between">
             <div>
-              <h3 class="text-base font-bold text-[#1B2943]">{app.name}</h3>
-              <p class="text-xs text-[#778399] mt-0.5">{app.actions} action{app.actions !== 1 ? 's' : ''}</p>
+              <h3 class="text-base font-bold text-[var(--color-text-main)]">{app.name}</h3>
+              <p class="text-xs text-[var(--color-text-muted)] mt-0.5">{app.actions} action{app.actions !== 1 ? 's' : ''} available</p>
             </div>
             {#if app.connected}
-              <span class="bg-[#219B70]/10 text-[#219B70] border border-[#219B70]/30 text-xs font-semibold px-2.5 py-0.5 rounded-full">Connected</span>
+              <span class="inline-flex px-2.5 py-1 text-xs font-semibold rounded-full badge-success">
+                Connected
+              </span>
             {:else if app.configured}
-              <span class="bg-[#E8EEFF] text-[#2448CB] border border-[#2448CB]/30 text-xs font-semibold px-2.5 py-0.5 rounded-full">Ready</span>
+              <span class="inline-flex px-2.5 py-1 text-xs font-semibold rounded-full badge-info">
+                Configured
+              </span>
+            {:else}
+              <span class="inline-flex px-2.5 py-1 text-xs font-semibold rounded-full badge-neutral">
+                Unconfigured
+              </span>
             {/if}
           </div>
 
@@ -183,79 +191,89 @@
               type="button"
               onclick={() => disconnectApp(app)}
               disabled={actionInProgress === app.id}
-              class="btn-surface text-xs font-semibold px-3.5 py-1.5 text-[#778399] hover:text-[#D94B5B] hover:border-[#D94B5B] disabled:opacity-40"
+              class="btn-danger min-h-[44px] px-4 py-2 text-xs font-semibold rounded-xl disabled:opacity-40"
             >
-              {actionInProgress === app.id ? 'Disconnecting...' : 'Disconnect'}
+              {actionInProgress === app.id ? 'Disconnecting...' : 'Disconnect Service'}
             </button>
           {:else if app.configured}
             <button
               type="button"
               onclick={() => connectApp(app)}
               disabled={actionInProgress === app.id}
-              class="btn-primary text-xs font-semibold px-4 py-2 disabled:opacity-40"
+              class="btn-primary min-h-[44px] px-5 py-2 text-xs font-semibold rounded-xl disabled:opacity-40"
             >
-              {actionInProgress === app.id ? 'Connecting...' : 'Connect'}
+              {actionInProgress === app.id ? 'Authorizing...' : 'Connect OAuth'}
             </button>
           {:else if setupApp === app.id}
-            <div class="mt-3 border-t border-[#DCE4F3] pt-3">
+            <div class="pt-4 border-t border-[var(--color-border)] space-y-3">
               {#if setupLinks[app.id]}
-                <a href={setupLinks[app.id].url} target="_blank" rel="noopener"
-                   class="text-xs text-[#2448CB] hover:underline mb-3 block">
+                <a
+                  href={setupLinks[app.id].url}
+                  target="_blank"
+                  rel="noopener"
+                  class="text-xs text-[var(--color-primary)] hover:underline block leading-relaxed"
+                >
                   {setupLinks[app.id].label}
                 </a>
               {/if}
 
               {#if app.id === 'notion'}
-                <div class="mb-3">
-                  <label for="setup-api-key" class="label block mb-1">Internal Integration Token</label>
+                <div class="space-y-1">
+                  <label for="setup-api-key" class="text-xs font-semibold text-[var(--color-text-muted)]">
+                    Internal Integration Secret
+                  </label>
                   <input
                     id="setup-api-key"
                     bind:value={setupForm.api_key}
                     type="password"
-                    placeholder="ntn_..."
-                    class="input-soft w-full text-xs px-3 py-2 font-mono"
+                    placeholder="secret_..."
+                    class="neu-inset min-h-[44px] w-full px-3 py-2 text-xs font-mono rounded-xl text-[var(--color-text-main)]"
                   />
                 </div>
               {:else}
-                <div class="mb-2">
-                  <label for="setup-client-id" class="label block mb-1">Client ID</label>
+                <div class="space-y-1">
+                  <label for="setup-client-id" class="text-xs font-semibold text-[var(--color-text-muted)]">
+                    OAuth Client ID
+                  </label>
                   <input
                     id="setup-client-id"
                     bind:value={setupForm.client_id}
                     type="text"
-                    placeholder="xxxx.apps.googleusercontent.com"
-                    class="input-soft w-full text-xs px-3 py-2 font-mono"
+                    placeholder="Client identifier..."
+                    class="neu-inset min-h-[44px] w-full px-3 py-2 text-xs font-mono rounded-xl text-[var(--color-text-main)]"
                   />
                 </div>
-                <div class="mb-3">
-                  <label for="setup-client-secret" class="label block mb-1">Client Secret</label>
+                <div class="space-y-1">
+                  <label for="setup-client-secret" class="text-xs font-semibold text-[var(--color-text-muted)]">
+                    OAuth Client Secret
+                  </label>
                   <input
                     id="setup-client-secret"
                     bind:value={setupForm.client_secret}
                     type="password"
-                    placeholder="GOCSPX-..."
-                    class="input-soft w-full text-xs px-3 py-2 font-mono"
+                    placeholder="Client secret..."
+                    class="neu-inset min-h-[44px] w-full px-3 py-2 text-xs font-mono rounded-xl text-[var(--color-text-main)]"
                   />
                 </div>
               {/if}
 
               {#if setupError}
-                <p class="text-xs text-[#D94B5B] mb-2">{setupError}</p>
+                <p class="text-xs text-[var(--color-danger)]">{setupError}</p>
               {/if}
 
-              <div class="flex gap-2">
+              <div class="flex items-center gap-2 pt-2">
                 <button
                   type="button"
                   onclick={() => saveSetup(app)}
                   disabled={setupSaving}
-                  class="btn-primary text-xs px-4 py-2 disabled:opacity-40"
+                  class="btn-primary min-h-[44px] px-4 py-2 text-xs font-semibold rounded-xl disabled:opacity-40"
                 >
-                  {setupSaving ? 'Saving...' : 'Save & Configure'}
+                  {setupSaving ? 'Saving...' : 'Save Configuration'}
                 </button>
                 <button
                   type="button"
                   onclick={closeSetup}
-                  class="btn-surface text-xs px-3 py-1.5 text-[#778399]"
+                  class="btn-soft min-h-[44px] px-4 py-2 text-xs font-semibold rounded-xl text-[var(--color-text-muted)]"
                 >
                   Cancel
                 </button>
@@ -265,9 +283,9 @@
             <button
               type="button"
               onclick={() => openSetup(app)}
-              class="btn-surface text-xs font-semibold px-4 py-2 hover:border-[#2448CB]"
+              class="btn-soft min-h-[44px] px-5 py-2 text-xs font-semibold rounded-xl text-[var(--color-text-main)]"
             >
-              Setup
+              Configure Credentials
             </button>
           {/if}
         </div>

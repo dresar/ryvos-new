@@ -454,6 +454,7 @@ mod tests {
             provider: "copilot".into(),
             model_id: "claude-sonnet-4".into(),
             api_key: None,
+            api_keys: vec![],
             base_url: None,
             max_tokens: 8192,
             temperature: 0.0,

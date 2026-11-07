@@ -57,7 +57,43 @@ impl SseParser {
             }
         }
 
+        if self.buffer.len() > 1024 * 1024 {
+            let excess = self.buffer.len() - 512 * 1024;
+            self.buffer.drain(..excess);
+        }
+
         self.extract_events()
+    }
+
+    pub fn finish(&mut self) -> Vec<SseEvent> {
+        let mut events = self.extract_events();
+        if !self.buffer.is_empty() {
+            let block = std::mem::take(&mut self.buffer);
+            let mut event_type = None;
+            let mut data_lines = Vec::new();
+            let normalized = block.replace("\r\n", "\n").replace('\r', "\n");
+            for line in normalized.lines() {
+                if line.starts_with(':') {
+                    continue;
+                }
+                if let Some(val) = line.strip_prefix("event: ") {
+                    event_type = Some(val.to_string());
+                } else if let Some(val) = line.strip_prefix("event:") {
+                    event_type = Some(val.trim_start().to_string());
+                } else if let Some(val) = line.strip_prefix("data: ") {
+                    data_lines.push(val.to_string());
+                } else if let Some(val) = line.strip_prefix("data:") {
+                    data_lines.push(val.to_string());
+                }
+            }
+            if !data_lines.is_empty() {
+                events.push(SseEvent {
+                    event_type,
+                    data: data_lines.join("\n"),
+                });
+            }
+        }
+        events
     }
 
     fn extract_events(&mut self) -> Vec<SseEvent> {
@@ -72,6 +108,9 @@ impl SseParser {
 
             let normalized = block.replace("\r\n", "\n").replace('\r', "\n");
             for line in normalized.lines() {
+                if line.starts_with(':') {
+                    continue;
+                }
                 if let Some(val) = line.strip_prefix("event: ") {
                     event_type = Some(val.to_string());
                 } else if let Some(val) = line.strip_prefix("event:") {
@@ -193,7 +232,14 @@ where
             }
             Poll::Ready(None) => {
                 this.timer = None;
-                Poll::Ready(None)
+                let remaining = this.parser.finish();
+                if !remaining.is_empty() {
+                    let first = remaining[0].clone();
+                    this.pending.extend(remaining.into_iter().skip(1));
+                    Poll::Ready(Some(first))
+                } else {
+                    Poll::Ready(None)
+                }
             }
             Poll::Pending => {
                 let timer = this.timer.get_or_insert_with(|| {

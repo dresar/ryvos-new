@@ -106,6 +106,7 @@ fn test_model_config(provider: &str, model: &str) -> ModelConfig {
         provider: provider.to_string(),
         model_id: model.to_string(),
         api_key: Some("key".to_string()),
+        api_keys: vec![],
         base_url: None,
         max_tokens: 1024,
         temperature: 0.7,

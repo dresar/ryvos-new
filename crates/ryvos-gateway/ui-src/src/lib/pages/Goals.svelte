@@ -11,6 +11,7 @@
   let error = $state('');
   let currentStream = $state('');
   let toolEvents = $state([]);
+  let judgeEvents = $state([]);
   let history = $state([]);
   let historyLoading = $state(true);
 
@@ -24,6 +25,7 @@
     error = '';
     currentStream = '';
     toolEvents = [];
+    judgeEvents = [];
 
     try {
       const data = await apiFetch('/api/goals/run', {
@@ -35,7 +37,7 @@
       });
       activeSession = data.session_id;
     } catch (e) {
-      error = e.message;
+      error = e.message || 'Failed to start goal run';
       executing = false;
     }
   }
@@ -53,8 +55,17 @@
   }
 
   function formatTime(isoStr) {
-    if (!isoStr) return '-';
-    return new Date(isoStr).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    if (!isoStr) return 'N/A';
+    try {
+      return new Date(isoStr).toLocaleString([], {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch {
+      return String(isoStr);
+    }
   }
 
   onMount(() => {
@@ -69,6 +80,8 @@
         toolEvents = [{ kind: 'start', tool: latest.text, time: latest.time }, ...toolEvents].slice(0, 30);
       } else if (latest.kind === 'tool_end') {
         toolEvents = [{ kind: 'end', tool: latest.text, time: latest.time }, ...toolEvents].slice(0, 30);
+      } else if (latest.kind === 'judge_verdict' || latest.kind === 'goal_evaluated') {
+        judgeEvents = [{ title: latest.text, data: latest.data, time: latest.time }, ...judgeEvents].slice(0, 10);
       } else if (latest.kind === 'run_complete') {
         executing = false;
         result = currentStream || 'Goal execution completed.';
@@ -88,130 +101,173 @@
   });
 </script>
 
-<div>
-  <div class="mb-6">
-    <h2 class="text-2xl font-heading font-bold tracking-tight text-[#1B2943]">Goals</h2>
-    <p class="text-[#778399] text-sm mt-1">Director-driven goal orchestration: OODA loop with auto-evolving execution graphs.</p>
+<div class="space-y-6">
+  <div>
+    <h2 class="text-2xl font-bold tracking-tight text-[var(--color-text-main)]">Autonomous Goals Orchestration</h2>
+    <p class="text-sm text-[var(--color-text-muted)] mt-1">Autonomous OODA execution loops with runtime self-evaluation and telemetry</p>
   </div>
 
-  <div class="card-soft p-6 mb-6">
-    <label for="goal-description" class="label block mb-2 text-[#1B2943]">Goal Description</label>
-    <textarea
-      id="goal-description"
-      bind:value={goalDescription}
-      placeholder="Describe the objective for the autonomous agent to plan and execute..."
-      rows="3"
-      class="input-soft w-full px-4 py-3 text-sm font-mono resize-none"
-    ></textarea>
+  <div class="neu-card p-6 space-y-4">
+    <div>
+      <label for="goal-description" class="block text-xs font-bold uppercase tracking-wider text-[var(--color-text-muted)] mb-2">
+        Goal Objective
+      </label>
+      <textarea
+        id="goal-description"
+        bind:value={goalDescription}
+        placeholder="Specify the objective for the autonomous agent runtime to plan, execute, and verify..."
+        rows="3"
+        class="neu-inset w-full p-4 text-sm font-mono rounded-xl resize-none text-[var(--color-text-main)] min-h-[96px]"
+      ></textarea>
+    </div>
 
-    <div class="flex flex-col sm:flex-row sm:items-center gap-4 mt-4">
-      <div class="flex-1">
-        <label for="goal-channel" class="label block mb-1 text-[10px]">Route Result Notification</label>
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2">
+      <div class="flex items-center gap-3">
+        <label for="goal-channel" class="text-xs font-semibold text-[var(--color-text-muted)] whitespace-nowrap">
+          Notification Route:
+        </label>
         <select
           id="goal-channel"
           bind:value={channel}
-          class="input-soft px-3 py-2 text-sm w-full sm:w-auto min-w-[200px]"
+          class="neu-inset min-h-[44px] px-3 py-2 text-sm rounded-xl text-[var(--color-text-main)] bg-[var(--color-surface)]"
         >
-          <option value="">None (Gateway UI only)</option>
-          <option value="telegram">Telegram</option>
+          <option value="">Gateway Control Plane Only</option>
+          <option value="telegram">Telegram Broadcast</option>
         </select>
       </div>
+
       <button
         type="button"
         onclick={executeGoal}
         disabled={executing || !goalDescription.trim()}
-        class="btn-primary px-8 py-3 text-sm font-semibold disabled:opacity-40"
+        class="btn-primary min-h-[44px] px-6 py-2 rounded-xl text-sm font-semibold disabled:opacity-40"
       >
-        {executing ? 'Executing...' : 'Execute Goal'}
+        {executing ? 'Executing Objective...' : 'Launch Goal Loop'}
       </button>
     </div>
   </div>
 
   {#if executing || result || error}
-    <div class="card-soft p-6 mb-6">
-      <div class="flex items-center justify-between mb-3">
-        <span class="label text-[#1B2943]">Execution Progress</span>
+    <div class="neu-card p-6 space-y-4 border-l-4 {error ? 'border-[var(--color-danger)]' : executing ? 'border-[var(--color-primary)]' : 'border-[var(--color-success)]'}">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-bold uppercase tracking-wider text-[var(--color-text-main)]">Live Execution Status</h3>
         {#if executing}
-          <span class="inline-flex items-center gap-1.5 text-xs font-semibold text-[#2448CB]">
-            <span class="w-2 h-2 bg-[#2448CB] rounded-full animate-pulse"></span>
-            Running
+          <span class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold badge-info animate-pulse">
+            Active Run
           </span>
         {:else if error}
-          <span class="text-xs font-semibold text-[#D94B5B]">Failed</span>
+          <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold badge-danger">
+            Failed
+          </span>
         {:else}
-          <span class="text-xs font-semibold text-[#219B70]">Complete</span>
+          <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold badge-success">
+            Success
+          </span>
         {/if}
       </div>
 
       {#if activeSession}
-        <p class="text-xs font-mono text-[#778399] mb-3">Session ID: {activeSession}</p>
+        <div class="text-xs font-mono text-[var(--color-text-muted)]">
+          Session ID: <span class="text-[var(--color-text-main)]">{activeSession}</span>
+        </div>
+      {/if}
+
+      {#if judgeEvents.length > 0}
+        <div class="neu-inset p-3 rounded-xl space-y-2">
+          <div class="text-xs font-bold text-[var(--color-primary)]">Judge and Evaluator Verdicts</div>
+          {#each judgeEvents as je}
+            <div class="text-xs flex items-center justify-between text-[var(--color-text-main)]">
+              <span>{je.title}</span>
+              <span class="font-mono tabular-nums text-[var(--color-text-muted)]">{je.time}</span>
+            </div>
+          {/each}
+        </div>
       {/if}
 
       {#if toolEvents.length > 0}
-        <div class="mb-4 max-h-40 overflow-y-auto space-y-1 p-2 bg-[#F8FAFF] rounded-xl border border-[#DCE4F3]">
+        <div class="neu-inset p-3 rounded-xl max-h-48 overflow-y-auto space-y-1 font-mono text-xs">
           {#each toolEvents as evt}
-            <div class="flex items-center gap-2 py-0.5 text-xs font-mono">
-              <span class={evt.kind === 'start' ? 'text-[#2448CB] font-bold' : 'text-[#219B70] font-bold'}>
-                {evt.kind === 'start' ? '>' : '<'}
+            <div class="flex items-center gap-2 py-0.5">
+              <span class={evt.kind === 'start' ? 'text-[var(--color-primary)] font-bold' : 'text-[var(--color-success)] font-bold'}>
+                {evt.kind === 'start' ? '>>>' : '<<<'}
               </span>
-              <span class="text-[#1B2943]">{evt.tool}</span>
-              <span class="ml-auto text-[10px] text-[#778399] tabular-nums">{evt.time}</span>
+              <span class="text-[var(--color-text-main)]">{evt.tool}</span>
+              <span class="ml-auto text-[10px] text-[var(--color-text-muted)] tabular-nums">{evt.time}</span>
             </div>
           {/each}
         </div>
       {/if}
 
       {#if currentStream && executing}
-        <div class="border-t border-[#DCE4F3] pt-3 mt-3">
-          <pre class="text-sm text-[#1B2943] bg-[#F8FAFF] border border-[#DCE4F3] whitespace-pre-wrap font-mono leading-relaxed">{currentStream}</pre>
+        <div class="space-y-1">
+          <div class="text-xs font-semibold text-[var(--color-text-muted)]">Live Stream Output:</div>
+          <pre class="p-4 rounded-xl neu-inset text-xs font-mono whitespace-pre-wrap leading-relaxed text-[var(--color-text-main)] max-h-64 overflow-y-auto">{currentStream}</pre>
         </div>
       {/if}
 
       {#if result && !executing}
-        <div class="border-t border-[#DCE4F3] pt-3 mt-3">
-          <pre class="text-sm text-[#1B2943] bg-[#F8FAFF] border border-[#DCE4F3] whitespace-pre-wrap font-mono leading-relaxed">{result}</pre>
+        <div class="space-y-1">
+          <div class="text-xs font-semibold text-[var(--color-success)]">Execution Outcome:</div>
+          <pre class="p-4 rounded-xl neu-inset text-xs font-mono whitespace-pre-wrap leading-relaxed text-[var(--color-text-main)] max-h-64 overflow-y-auto">{result}</pre>
         </div>
       {/if}
 
       {#if error}
-        <div class="border-t border-[#D94B5B]/30 pt-3 mt-3">
-          <p class="text-sm text-[#D94B5B] font-mono">{error}</p>
+        <div class="p-3 rounded-xl bg-red-500/10 text-xs font-mono text-[var(--color-danger)]">
+          {error}
         </div>
       {/if}
     </div>
   {/if}
 
-  <div>
-    <h3 class="text-lg font-heading font-bold text-[#1B2943] mb-3">Goal Run History</h3>
+  <div class="space-y-3">
+    <h3 class="text-lg font-bold text-[var(--color-text-main)]">Goal Execution Archives</h3>
     {#if historyLoading}
-      <div class="card-soft p-8 text-center">
-        <p class="text-[#778399] text-sm animate-pulse">Loading history...</p>
+      <div class="neu-card p-8 text-center text-sm text-[var(--color-text-muted)]">
+        Loading historical runs...
       </div>
     {:else if history.length === 0}
-      <div class="card-soft p-8 text-center">
-        <p class="text-[#778399] text-sm">No goal runs recorded yet. Execute your first goal above.</p>
+      <div class="neu-card p-8 text-center text-sm text-[var(--color-text-muted)]">
+        No previous runs archived. Execute a goal above to start telemetry collection.
       </div>
     {:else}
-      <div class="card-soft overflow-hidden">
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="bg-[#F8FAFF] border-b border-[#DCE4F3]">
-                {#each ['Time', 'Session', 'Turns', 'Status'] as col}
-                  <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-[#778399]">{col}</th>
-                {/each}
+      <div class="neu-card p-0 overflow-hidden">
+        <div class="table-scroll">
+          <table class="w-full text-left text-sm">
+            <thead class="border-b border-[var(--color-border)] bg-[var(--color-surface)]">
+              <tr>
+                <th class="px-4 py-3 text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">Timestamp</th>
+                <th class="px-4 py-3 text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">Session</th>
+                <th class="px-4 py-3 text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">Turns</th>
+                <th class="px-4 py-3 text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">Status</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-[#DCE4F3]">
+            <tbody class="divide-y divide-[var(--color-border)]">
               {#each history as run}
-                <tr class="hover:bg-[#F8FAFF] transition-colors duration-150">
-                  <td class="px-4 py-3 font-mono text-xs text-[#778399] tabular-nums">{formatTime(run.start_time)}</td>
-                  <td class="px-4 py-3 font-mono text-xs text-[#778399]">{(run.session_id || '').substring(0, 20)}</td>
-                  <td class="px-4 py-3 text-[#1B2943] tabular-nums">{run.total_turns || 0}</td>
-                  <td class="px-4 py-3">
-                    <span class="font-semibold text-xs {run.status === 'complete' ? 'text-[#219B70]' : run.status === 'running' ? 'text-[#C58A2A]' : 'text-[#D94B5B]'}">
-                      {run.status || '-'}
-                    </span>
+                <tr class="hover:bg-[var(--color-bg)] transition-colors">
+                  <td class="px-4 py-3 font-mono text-xs tabular-nums text-[var(--color-text-muted)] whitespace-nowrap">
+                    {formatTime(run.start_time)}
+                  </td>
+                  <td class="px-4 py-3 font-mono text-xs text-[var(--color-text-main)]">
+                    {(run.session_id || '').substring(0, 24)}
+                  </td>
+                  <td class="px-4 py-3 font-mono text-xs tabular-nums text-[var(--color-text-main)]">
+                    {run.total_turns || 0}
+                  </td>
+                  <td class="px-4 py-3 whitespace-nowrap">
+                    {#if run.status === 'complete' || run.status === 'success'}
+                      <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold badge-success">
+                        Completed
+                      </span>
+                    {:else if run.status === 'running'}
+                      <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold badge-warning">
+                        Running
+                      </span>
+                    {:else}
+                      <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold badge-danger">
+                        {run.status || 'Failed'}
+                      </span>
+                    {/if}
                   </td>
                 </tr>
               {/each}

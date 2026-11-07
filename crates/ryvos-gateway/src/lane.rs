@@ -8,6 +8,7 @@ pub struct LaneItem {
 }
 
 /// Per-session FIFO queue ensuring serial execution of requests.
+#[derive(Clone)]
 pub struct LaneQueue {
     tx: mpsc::Sender<LaneItem>,
 }

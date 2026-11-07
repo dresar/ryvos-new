@@ -191,11 +191,26 @@ fn parse_duration_value(s: &str) -> Option<Duration> {
     None
 }
 
+pub struct KeyRotator {
+    counter: std::sync::atomic::AtomicUsize,
+    cooldowns: Mutex<std::collections::HashMap<String, Instant>>,
+}
+
+impl Default for KeyRotator {
+    fn default() -> Self {
+        Self {
+            counter: std::sync::atomic::AtomicUsize::new(0),
+            cooldowns: Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+}
+
 pub struct RetryingClient {
     primary: Box<dyn LlmClient>,
     fallbacks: Vec<(ModelConfig, Box<dyn LlmClient>)>,
     retry_config: RetryConfig,
     circuit_breaker: CircuitBreaker,
+    key_rotator: KeyRotator,
 }
 
 impl RetryingClient {
@@ -209,6 +224,7 @@ impl RetryingClient {
             fallbacks,
             retry_config,
             circuit_breaker: CircuitBreaker::new(3, Duration::from_secs(30)),
+            key_rotator: KeyRotator::default(),
         }
     }
 
@@ -279,6 +295,27 @@ fn calculate_backoff(attempt: u32, config: &RetryConfig) -> Duration {
     Duration::from_millis(((ms as f64) * jitter) as u64)
 }
 
+fn is_quota_or_auth_error(e: &RyvosError) -> bool {
+    match e {
+        RyvosError::LlmRequest(msg) => {
+            let lower = msg.to_lowercase();
+            lower.contains("429")
+                || lower.contains("rate limit")
+                || lower.contains("resource_exhausted")
+                || lower.contains("quota")
+                || lower.contains("credit")
+                || lower.contains("401")
+                || lower.contains("unauthorized")
+                || lower.contains("403")
+                || lower.contains("forbidden")
+                || lower.contains("api_key_invalid")
+                || lower.contains("api key not valid")
+                || lower.contains("invalid api key")
+        }
+        _ => false,
+    }
+}
+
 impl LlmClient for RetryingClient {
     fn chat_stream(
         &self,
@@ -296,6 +333,81 @@ impl LlmClient for RetryingClient {
             if !self.circuit_breaker.allow_request() {
                 warn!("Circuit breaker is Open; fast-failing over immediately");
                 return self.execute_fallbacks(messages, tools).await;
+            }
+
+            let key_pool = config.get_api_key_pool();
+            let num_keys = key_pool.len();
+
+            if num_keys > 1 {
+                let start_idx = self
+                    .key_rotator
+                    .counter
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                    % num_keys;
+
+                let now = Instant::now();
+                let mut candidate_indices: Vec<usize> =
+                    (0..num_keys).map(|i| (start_idx + i) % num_keys).collect();
+
+                {
+                    let cds = self.key_rotator.cooldowns.lock().unwrap();
+                    candidate_indices.sort_by_key(|&idx| {
+                        let k = &key_pool[idx];
+                        if let Some(exp) = cds.get(k) {
+                            if *exp > now {
+                                return 1;
+                            }
+                        }
+                        0
+                    });
+                }
+
+                let mut last_key_err = None;
+                for &idx in &candidate_indices {
+                    let candidate_key = &key_pool[idx];
+                    let mut active_config = config.clone();
+                    active_config.api_key = Some(candidate_key.clone());
+
+                    match self
+                        .primary
+                        .chat_stream(&active_config, messages.clone(), &tools)
+                        .await
+                    {
+                        Ok(stream) => {
+                            self.circuit_breaker.record_success();
+                            let mut cds = self.key_rotator.cooldowns.lock().unwrap();
+                            cds.remove(candidate_key);
+                            return Ok(stream);
+                        }
+                        Err(e) => {
+                            let is_quota_or_auth = is_quota_or_auth_error(&e);
+                            if is_quota_or_auth {
+                                let mut cds = self.key_rotator.cooldowns.lock().unwrap();
+                                let retry_after = CircuitBreaker::parse_retry_after_str(&e.to_string())
+                                    .unwrap_or(Duration::from_secs(60));
+                                cds.insert(candidate_key.clone(), Instant::now() + retry_after);
+                                warn!(
+                                    key_index = idx,
+                                    total_keys = num_keys,
+                                    error = %e,
+                                    "API key hit quota or rate limit, rotating to next key in pool"
+                                );
+                                last_key_err = Some(e);
+                                continue;
+                            }
+                            last_key_err = Some(e);
+                            break;
+                        }
+                    }
+                }
+
+                if let Some(e) = last_key_err {
+                    if !self.fallbacks.is_empty() {
+                        warn!(error = %e, "All keys in pool failed, falling back to alternative models");
+                        return self.execute_fallbacks(messages, tools).await;
+                    }
+                    return Err(e);
+                }
             }
 
             let mut last_err = None;
@@ -406,5 +518,37 @@ mod tests {
 
         let s3 = "Retry_after=500ms";
         assert_eq!(CircuitBreaker::parse_retry_after_str(s3), Some(Duration::from_millis(500)));
+    }
+
+    #[test]
+    fn test_is_quota_or_auth_error() {
+        let e1 = RyvosError::LlmRequest("HTTP 429: Resource has been exhausted (e.g. check quota)".into());
+        assert!(is_quota_or_auth_error(&e1));
+
+        let e2 = RyvosError::LlmRequest("HTTP 403: Forbidden quota exceeded".into());
+        assert!(is_quota_or_auth_error(&e2));
+
+        let e3 = RyvosError::LlmRequest("HTTP 401: Unauthorized invalid API key".into());
+        assert!(is_quota_or_auth_error(&e3));
+
+        let e_gemini_auth = RyvosError::LlmRequest("HTTP 400 Bad Request: API key not valid. Reason: API_KEY_INVALID".into());
+        assert!(is_quota_or_auth_error(&e_gemini_auth));
+
+        let e4 = RyvosError::LlmRequest("HTTP 500: Internal Server Error".into());
+        assert!(!is_quota_or_auth_error(&e4));
+    }
+
+    #[test]
+    fn test_key_pool_parsing() {
+        let mut config = ModelConfig::default();
+        config.api_key = Some("key1, key2\nkey3; key4".into());
+        config.api_keys = vec!["key5".into(), "key2".into()];
+        let pool = config.get_api_key_pool();
+        assert_eq!(pool.len(), 5);
+        assert_eq!(pool[0], "key1");
+        assert_eq!(pool[1], "key2");
+        assert_eq!(pool[2], "key3");
+        assert_eq!(pool[3], "key4");
+        assert_eq!(pool[4], "key5");
     }
 }

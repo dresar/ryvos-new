@@ -98,6 +98,10 @@ pub async fn validate_url_for_egress(url_str: &str) -> Result<()> {
     Ok(())
 }
 
+pub async fn validate_safe_egress_url(url_str: &str) -> Result<()> {
+    validate_url_for_egress(url_str).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

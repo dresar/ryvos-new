@@ -300,10 +300,11 @@ impl LlmClient for AnthropicClient {
         let tools = tools.to_vec();
 
         Box::pin(async move {
-            let api_key = config
-                .api_key
-                .as_deref()
+            let effective_key = config
+                .get_effective_api_key()
+                .or_else(|| config.api_key.clone())
                 .ok_or_else(|| RyvosError::Config("Anthropic API key not set".into()))?;
+            let api_key = effective_key.as_str();
 
             let base_url = config.base_url.as_deref().unwrap_or(ANTHROPIC_API_URL);
 

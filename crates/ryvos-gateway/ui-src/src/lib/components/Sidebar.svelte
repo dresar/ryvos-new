@@ -5,7 +5,7 @@
   import { authenticated } from '../stores.js';
   import logoUrl from '../../assets/logo.png';
 
-  let { currentRoute = 'chat', open = $bindable(true) } = $props();
+  let { currentRoute = 'chat', open = $bindable(false) } = $props();
 
   let status = $state('disconnected');
   let version = $state('');
@@ -17,7 +17,7 @@
     });
     try {
       const data = await apiFetch('/api/health');
-      version = data.version || '';
+      version = data.version || '0.9.0';
     } catch {}
   });
 
@@ -26,19 +26,19 @@
   });
 
   const navItems = [
-    { route: 'chat',       label: 'Chat',            icon: 'message' },
-    { route: 'dashboard',  label: 'Dashboard',       icon: 'grid' },
-    { route: 'sessions',   label: 'Sessions',        icon: 'layers' },
-    { route: 'runs',       label: 'Runs',            icon: 'activity' },
-    { route: 'goals',      label: 'Goals',           icon: 'target' },
-    { route: 'costs',      label: 'Costs',           icon: 'dollar' },
-    { route: 'channels',   label: 'Channels',        icon: 'radio' },
-    { route: 'integrations', label: 'Integrations',  icon: 'plug' },
-    { route: 'audit',      label: 'Audit Trail',     icon: 'shield' },
-    { route: 'viking',     label: 'Viking Browser',  icon: 'database' },
-    { route: 'cron',       label: 'Cron Jobs',       icon: 'clock' },
-    { route: 'config',     label: 'Config',          icon: 'file' },
-    { route: 'settings',   label: 'Settings',        icon: 'settings' },
+    { route: 'chat', label: 'Chat', icon: 'message' },
+    { route: 'dashboard', label: 'Dashboard', icon: 'grid' },
+    { route: 'sessions', label: 'Sessions', icon: 'layers' },
+    { route: 'runs', label: 'Runs', icon: 'activity' },
+    { route: 'goals', label: 'Goals', icon: 'target' },
+    { route: 'costs', label: 'Costs', icon: 'dollar' },
+    { route: 'channels', label: 'Channels', icon: 'radio' },
+    { route: 'integrations', label: 'Tools', icon: 'plug' },
+    { route: 'audit', label: 'Audit Trail', icon: 'shield' },
+    { route: 'viking', label: 'Viking Context', icon: 'database' },
+    { route: 'cron', label: 'Cron Jobs', icon: 'clock' },
+    { route: 'config', label: 'Config', icon: 'file' },
+    { route: 'settings', label: 'Settings', icon: 'settings' },
   ];
 
   function handleLogout() {
@@ -48,11 +48,14 @@
   }
 
   function isActive(route) {
+    if (route === 'viking' && (currentRoute === 'viking' || currentRoute === 'memory')) {
+      return true;
+    }
     return route === currentRoute;
   }
 
   function handleNavClick() {
-    if (window.innerWidth < 768) {
+    if (window.innerWidth < 1024) {
       open = false;
     }
   }
@@ -63,29 +66,34 @@
     role="button"
     tabindex="0"
     aria-label="Close navigation drawer"
-    class="fixed inset-0 bg-[#0F1729]/40 backdrop-blur-sm z-40 md:hidden"
+    class="fixed inset-0 bg-[#0F1729]/40 backdrop-blur-sm z-40 lg:hidden"
     onclick={() => open = false}
     onkeydown={(e) => { if (e.key === 'Escape' || e.key === 'Enter') open = false; }}
   ></div>
 {/if}
 
 <aside
-  class="w-64 bg-white border-r border-[#DCE4F3] flex flex-col h-screen shrink-0
-    fixed md:relative z-50 transition-transform duration-200 ease-out shadow-soft md:shadow-none
-    {open ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}"
+  class="w-64 bg-[var(--color-surface)] border-r border-[var(--color-border)] flex flex-col h-screen shrink-0
+    fixed lg:sticky top-0 z-50 transition-transform duration-200 ease-out shadow-sm lg:shadow-none
+    {open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}"
 >
-  <div class="flex items-center gap-3 px-5 py-4 border-b border-[#DCE4F3]">
-    <div class="w-8 h-8 rounded-xl bg-[#E8EEFF] flex items-center justify-center shadow-soft-sm">
-      <img src={logoUrl} alt="Ryvos" class="w-5 h-5 object-contain" />
+  <div class="flex items-center gap-3 px-5 py-4 border-b border-[var(--color-border)]">
+    <div class="w-9 h-9 rounded-xl bg-[var(--color-primary-soft)] flex items-center justify-center neu-card">
+      <img src={logoUrl} alt="Ryvos logo" class="w-5 h-5 object-contain" />
     </div>
-    <span class="text-lg font-heading font-bold tracking-tight text-[#1B2943]">Ryvos</span>
+    <div class="flex flex-col">
+      <span class="text-base font-bold tracking-tight text-[var(--color-text)]">Ryvos</span>
+      <span class="text-[11px] text-[var(--color-text-secondary)] font-mono">Control Plane</span>
+    </div>
     {#if version}
-      <span class="text-[10px] font-bold uppercase tracking-wider text-[#2448CB] bg-[#E8EEFF] px-2 py-0.5 rounded-full">v{version}</span>
+      <span class="ml-auto text-[10px] font-bold tracking-wider text-[var(--color-primary)] bg-[var(--color-primary-soft)] px-2 py-0.5 rounded-full">
+        v{version}
+      </span>
     {/if}
     <button
       type="button"
-      aria-label="Close menu"
-      class="ml-auto md:hidden w-8 h-8 rounded-lg flex items-center justify-center text-[#778399] hover:text-[#1B2943] hover:bg-[#F4F6FF] transition-colors"
+      aria-label="Close navigation menu"
+      class="ml-2 lg:hidden min-h-[44px] min-w-[44px] btn-soft flex items-center justify-center p-2 rounded-xl text-[var(--color-text-secondary)]"
       onclick={() => open = false}
     >
       <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -95,18 +103,19 @@
   </div>
 
   <div class="px-5 pt-4 pb-1">
-    <span class="label text-[10px] text-[#778399]">Navigation</span>
+    <span class="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">Menu</span>
   </div>
 
-  <nav class="flex-1 flex flex-col gap-1 px-3 py-1 overflow-y-auto">
+  <nav class="flex-1 flex flex-col gap-1 px-3 py-1 overflow-y-auto" aria-label="Primary navigation">
     {#each navItems as item}
       <a
         href="#/{item.route}"
         onclick={handleNavClick}
-        class="flex items-center gap-3 px-3 py-2 text-sm rounded-xl transition-all duration-150
+        aria-current={isActive(item.route) ? 'page' : undefined}
+        class="flex items-center gap-3 px-3.5 py-2.5 min-h-[44px] text-sm rounded-xl transition-all duration-150 font-medium
           {isActive(item.route)
-            ? 'bg-[#E8EEFF] text-[#2448CB] font-bold shadow-soft-sm'
-            : 'text-[#64748B] hover:bg-[#F8FAFF] hover:text-[#1B2943]'}"
+            ? 'bg-[var(--color-primary-soft)] text-[var(--color-primary)] font-bold shadow-sm'
+            : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-raised)] hover:text-[var(--color-text)]'}"
       >
         {#if item.icon === 'grid'}
           <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
@@ -140,19 +149,19 @@
     {/each}
   </nav>
 
-  <div class="px-5 py-3.5 border-t border-[#DCE4F3] flex items-center justify-between bg-[#F8FAFF]">
-    <div class="flex items-center gap-2 text-xs text-[#64748B]">
+  <div class="px-5 py-3.5 border-t border-[var(--color-border)] flex items-center justify-between bg-[var(--color-surface-inset)]">
+    <div class="flex items-center gap-2 text-xs">
       <span
         class="w-2.5 h-2.5 rounded-full {status === 'connected'
-          ? 'bg-[#219B70] shadow-sm animate-pulse-glow'
-          : status === 'error' ? 'bg-[#D94B5B]' : 'bg-[#778399]'}"
+          ? 'bg-[var(--color-success)]'
+          : status === 'error' ? 'bg-[var(--color-danger)]' : 'bg-[var(--color-text-secondary)]'}"
       ></span>
-      <span class="font-semibold text-xs text-[#1B2943]">{status === 'connected' ? 'Connected' : status === 'error' ? 'Error' : 'Offline'}</span>
+      <span class="font-semibold text-xs text-[var(--color-text)] capitalize">{status}</span>
     </div>
     <button
       type="button"
       onclick={handleLogout}
-      class="text-xs font-semibold text-[#778399] hover:text-[#D94B5B] px-2 py-1 rounded-lg hover:bg-white transition-colors duration-150"
+      class="text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-danger)] px-2 py-1 rounded-lg hover:bg-[var(--color-surface-raised)] transition-colors duration-150"
     >
       Disconnect
     </button>

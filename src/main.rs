@@ -367,30 +367,25 @@ async fn main() -> anyhow::Result<()> {
     // Note: dangerous_patterns are deprecated (no longer block tools), but still passed
     // to CLI-based providers for informational logging.
     let primary_llm =
-        ryvos_llm::create_client_with_security(&config.model, &config.security.dangerous_patterns);
-    let llm: Arc<dyn ryvos_core::traits::LlmClient> =
-        if !config.fallback_models.is_empty() || config.model.retry.is_some() {
-            let retry_config = config
-                .model
-                .retry
-                .clone()
-                .unwrap_or_else(RetryConfig::default);
-            let fallbacks: Vec<_> = config
-                .fallback_models
-                .iter()
-                .map(|mc| {
-                    let client = ryvos_llm::create_client(mc);
-                    (mc.clone(), client)
-                })
-                .collect();
-            Arc::new(ryvos_llm::RetryingClient::new(
-                primary_llm,
-                fallbacks,
-                retry_config,
-            ))
-        } else {
-            Arc::from(primary_llm)
-        };
+        ryvos_llm::create_dynamic_client_with_security(&config.security.dangerous_patterns);
+    let retry_config = config
+        .model
+        .retry
+        .clone()
+        .unwrap_or_else(RetryConfig::default);
+    let fallbacks: Vec<_> = config
+        .fallback_models
+        .iter()
+        .map(|mc| {
+            let client = ryvos_llm::create_client(mc);
+            (mc.clone(), client)
+        })
+        .collect();
+    let llm: Arc<dyn ryvos_core::traits::LlmClient> = Arc::new(ryvos_llm::RetryingClient::new(
+        primary_llm,
+        fallbacks,
+        retry_config,
+    ));
 
     let mut mcp_config = config.mcp.clone().unwrap_or_default();
     if let Some(project_mcp) = load_mcp_json() {
@@ -958,7 +953,7 @@ async fn main() -> anyhow::Result<()> {
                 runtime,
                 event_bus,
                 store,
-                session_mgr,
+                session_mgr.clone(),
                 broker,
             );
 
@@ -985,6 +980,31 @@ async fn main() -> anyhow::Result<()> {
             );
             server.set_integration_store(integration_store);
             server.set_integrations_config(config.integrations.clone());
+
+            let data_dir = workspace.join("data");
+            std::fs::create_dir_all(&data_dir).ok();
+            let session_meta = Arc::new(
+                ryvos_memory::SessionMetaStore::open(&data_dir.join("session_meta.db"))
+                    .map_err(|e| anyhow::anyhow!("Failed to open session meta store: {e}"))?,
+            );
+            if let Ok(metas) = session_meta.list() {
+                for meta in metas {
+                    session_mgr.restore(
+                        &meta.session_key,
+                        &meta.session_id,
+                        &meta.channel,
+                        meta.cli_session_id.as_deref(),
+                    );
+                }
+            }
+            server.set_session_meta(session_meta.clone());
+
+            if let Some(ref sm) = safety_memory {
+                server.set_safety_memory(sm.clone());
+            }
+            if let Some(ref j) = journal {
+                server.set_failure_journal(j.clone());
+            }
 
             if let Some(ref wa_config) = config.channels.whatsapp {
                 let wa_adapter = ryvos_channels::WhatsAppAdapter::new(
@@ -1141,6 +1161,12 @@ async fn main() -> anyhow::Result<()> {
                 }
                 server.set_config_path(cli.config.clone());
                 server.set_session_meta(session_meta.clone());
+                if let Some(ref sm) = safety_memory {
+                    server.set_safety_memory(sm.clone());
+                }
+                if let Some(ref j) = journal {
+                    server.set_failure_journal(j.clone());
+                }
 
                 let integration_store = Arc::new(
                     ryvos_memory::IntegrationStore::open(&workspace.join("integrations.db"))
@@ -2258,10 +2284,17 @@ fn load_mcp_json() -> Option<McpJsonConfig> {
 }
 
 fn create_env_config() -> anyhow::Result<AppConfig> {
-    let api_key = std::env::var("ANTHROPIC_API_KEY").ok();
+    let gemini_key = std::env::var("GEMINI_API_KEY").or_else(|_| std::env::var("GOOGLE_API_KEY")).ok();
+    let anthropic_key = std::env::var("ANTHROPIC_API_KEY").ok();
     let openai_key = std::env::var("OPENAI_API_KEY").ok();
 
-    let (provider, model_id, key) = if let Some(key) = api_key {
+    let (provider, model_id, key) = if let Some(key) = gemini_key {
+        (
+            "gemini".to_string(),
+            "gemini-3.6-flash".to_string(),
+            Some(key),
+        )
+    } else if let Some(key) = anthropic_key {
         (
             "anthropic".to_string(),
             "claude-sonnet-4-20250514".to_string(),
@@ -2270,21 +2303,15 @@ fn create_env_config() -> anyhow::Result<AppConfig> {
     } else if let Some(key) = openai_key {
         ("openai".to_string(), "gpt-4o".to_string(), Some(key))
     } else {
-        // Default to Ollama (local)
-        ("ollama".to_string(), "llama3.2".to_string(), None)
+        ("gemini".to_string(), "gemini-3.6-flash".to_string(), None)
     };
 
     let mut model = ryvos_core::config::ModelConfig {
         provider,
         model_id,
         api_key: key,
-        base_url: if std::env::var("ANTHROPIC_API_KEY").is_err()
-            && std::env::var("OPENAI_API_KEY").is_err()
-        {
-            Some("http://localhost:11434/v1/chat/completions".to_string())
-        } else {
-            None
-        },
+        api_keys: vec![],
+        base_url: None,
         max_tokens: 8192,
         temperature: 0.0,
         thinking: ThinkingLevel::Off,

@@ -117,6 +117,19 @@ impl CostStore {
         Ok(cents as u64)
     }
 
+    /// Get total tokens across all time.
+    pub fn total_tokens_all_time(&self) -> Result<u64> {
+        let conn = self.conn.lock().unwrap();
+        let tokens: i64 = conn
+            .query_row(
+                "SELECT COALESCE(SUM(input_tokens + output_tokens), 0) FROM cost_events",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|e| RyvosError::Database(e.to_string()))?;
+        Ok(tokens as u64)
+    }
+
     /// Get cost summary for a date range.
     pub fn cost_summary(&self, from: &DateTime<Utc>, to: &DateTime<Utc>) -> Result<CostSummary> {
         let conn = self.conn.lock().unwrap();

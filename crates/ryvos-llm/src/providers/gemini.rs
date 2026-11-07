@@ -296,10 +296,11 @@ impl LlmClient for GeminiClient {
         let tools = tools.to_vec();
 
         Box::pin(async move {
-            let api_key = config
-                .api_key
-                .as_deref()
+            let effective_key = config
+                .get_effective_api_key()
+                .or_else(|| config.api_key.clone())
                 .ok_or_else(|| RyvosError::Config("Gemini: api_key is required".into()))?;
+            let api_key = effective_key.as_str();
 
             let url = format!(
                 "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse&key={}",
