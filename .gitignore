@@ -18,6 +18,8 @@ Thumbs.db
 *.db-journal
 *.db-wal
 *.db-shm
+*.log
+ryvos.toml
 
 # Config with secrets (the example is fine)
 config.toml
