@@ -192,6 +192,16 @@ impl GatewayServer {
             )
             .route("/api/model", get(routes::get_model).put(routes::put_model))
             .route("/api/models/available", get(routes::list_models))
+            .route(
+                "/api/keys",
+                get(routes::list_api_keys)
+                    .put(routes::put_api_key)
+                    .post(routes::put_api_key),
+            )
+            .route(
+                "/api/keys/{provider}",
+                axum::routing::delete(routes::delete_api_key),
+            )
             .route("/api/integrations", get(routes::list_integrations))
             .route(
                 "/api/integrations/callback",
@@ -219,8 +229,9 @@ impl GatewayServer {
             )
             .route("/", get(static_files::index))
             .route("/index.html", get(static_files::index))
+            .route("/_next/{*path}", get(static_files::next_static))
             .route("/assets/{*path}", get(static_files::static_file))
-            .fallback(static_files::index)
+            .fallback(static_files::spa_fallback)
             .layer(CorsLayer::permissive())
             .with_state(state);
 

@@ -5,7 +5,7 @@
 - Bahasa Inti: Rust (Edition 2021 / Cargo Workspace).
 - RAM Footprint: 15-30 MB idle, <60 MB full subsystems active.
 - Delivery: Single static binary executable via `rust-embed`.
-- Frontend Gateway: Svelte 5 + Tailwind CSS + Vite (Soft Blue Neumorphism, Anti-Slop R-01 to R-40, WCAG 2.2 AA).
+- Frontend Gateway: Next.js 15 Static Export (`ui-next/`) + Tailwind CSS (Soft Blue Neumorphism, Anti-Slop R-01 to R-40, WCAG 2.2 AA).
 
 ## 2. Struktur Modul / Cargo Workspace (`crates/`)
 | Crate | Peran and Batasan Modul |
@@ -15,14 +15,14 @@
 | `crates/ryvos-llm` | Multi-provider streaming adapter (OpenAI, Anthropic, Gemini, Ollama, DeepSeek), KeyRotator pool, hardened SSE parser. |
 | `crates/ryvos-tools` | Built-in native tools (read/edit/write file, run bash, git operations, egress SSRF protection). |
 | `crates/ryvos-mcp` | Model Context Protocol client (stdio and SSE transport). |
-| `crates/ryvos-gateway` | Axum HTTP + WebSocket gateway server (unblocked reading loop) + Embedded Web UI (`ui-src/` Svelte 5). |
+| `crates/ryvos-gateway` | Axum HTTP + WebSocket gateway server (unblocked reading loop) + Embedded Web UI (`ui-next/` Next.js 15). |
 | `crates/ryvos-channels` | Channel adapters (Telegram bot, Discord, WhatsApp webhooks). |
 | `crates/ryvos-memory` | SQLite persistent sessions (`SessionMetaStore`), failure journal, audit log, OpenViking memory bridge. |
 | `crates/ryvos-skills` | On-demand skill discovery, tool extension registry. |
 | `crates/ryvos-tui` | Terminal text user interface. |
 
 ## 3. Direktori Kunci
-- `crates/ryvos-gateway/ui-src/`: Kode sumber Frontend Svelte 5 (Vite + Tailwind, Soft Blue Neumorphism).
-- `crates/ryvos-gateway/ui/`: Hasil kompilasi static dist yang di-embed langsung ke Rust binary.
+- `crates/ryvos-gateway/ui-next/`: Kode sumber tunggal Frontend Next.js 15 (TypeScript + Tailwind, Soft Blue Neumorphism, Static Export).
+- `crates/ryvos-gateway/ui/`: Hasil kompilasi static export yang di-embed langsung ke Rust binary via `rust-embed`.
 - `src/main.rs`: Root CLI entrypoint (`ryvos repl`, `run`, `serve`, `doctor`), wiring `SessionMetaStore`, `safety_memory`, `failure_journal`.
 - `.agents/rules/`: Aturan baku guardrails untuk agen pengembangan Antigravity cluster.

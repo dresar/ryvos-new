@@ -102,6 +102,7 @@ pub async fn session_history(
                     serde_json::json!({
                         "role": m.role,
                         "text": m.text(),
+                        "content": m.text(),
                         "timestamp": m.timestamp,
                     })
                 })
@@ -958,6 +959,187 @@ pub async fn get_model(
     Ok(Json(serde_json::Value::Object(resp)))
 }
 
+pub struct ProviderDescriptor {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub env_var: &'static str,
+    pub default_model: &'static str,
+    pub presets: &'static [(&'static str, &'static str)],
+}
+
+pub const SUPPORTED_PROVIDERS: &[ProviderDescriptor] = &[
+    ProviderDescriptor {
+        id: "gemini",
+        name: "Google Gemini",
+        env_var: "GEMINI_API_KEY",
+        default_model: "gemini-2.5-flash",
+        presets: &[
+            ("gemini-3.6-flash", "Gemini 3.6 Flash (2026)"),
+            ("gemini-2.5-flash", "Gemini 2.5 Flash"),
+            ("gemini-2.5-pro", "Gemini 2.5 Pro"),
+            ("gemini-2.0-flash", "Gemini 2.0 Flash"),
+        ],
+    },
+    ProviderDescriptor {
+        id: "anthropic",
+        name: "Anthropic Claude",
+        env_var: "ANTHROPIC_API_KEY",
+        default_model: "claude-3-7-sonnet",
+        presets: &[
+            ("claude-3-7-sonnet", "Claude 3.7 Sonnet (2026)"),
+            ("claude-sonnet-4-20250514", "Claude Sonnet 4"),
+            ("claude-3-5-sonnet-20241022", "Claude 3.5 Sonnet"),
+            ("claude-3-5-haiku-20241022", "Claude 3.5 Haiku"),
+        ],
+    },
+    ProviderDescriptor {
+        id: "openai",
+        name: "OpenAI",
+        env_var: "OPENAI_API_KEY",
+        default_model: "gpt-4o",
+        presets: &[
+            ("gpt-4.5-preview", "GPT-4.5 Preview"),
+            ("gpt-4o", "GPT-4o"),
+            ("gpt-4o-mini", "GPT-4o Mini"),
+            ("o3-mini", "o3-mini"),
+            ("o1", "o1"),
+        ],
+    },
+    ProviderDescriptor {
+        id: "deepseek",
+        name: "DeepSeek",
+        env_var: "DEEPSEEK_API_KEY",
+        default_model: "deepseek-chat",
+        presets: &[
+            ("deepseek-chat", "DeepSeek-V3"),
+            ("deepseek-reasoner", "DeepSeek-R1"),
+        ],
+    },
+    ProviderDescriptor {
+        id: "groq",
+        name: "Groq",
+        env_var: "GROQ_API_KEY",
+        default_model: "llama-3.3-70b-versatile",
+        presets: &[
+            ("llama-3.3-70b-versatile", "Llama 3.3 70B"),
+            ("llama-3.1-8b-instant", "Llama 3.1 8B"),
+            ("mixtral-8x7b-32768", "Mixtral 8x7B"),
+        ],
+    },
+    ProviderDescriptor {
+        id: "openrouter",
+        name: "OpenRouter",
+        env_var: "OPENROUTER_API_KEY",
+        default_model: "google/gemini-2.5-flash",
+        presets: &[
+            ("google/gemini-2.5-flash", "OpenRouter: Gemini 2.5 Flash"),
+            ("anthropic/claude-3.7-sonnet", "OpenRouter: Claude 3.7 Sonnet"),
+            ("deepseek/deepseek-chat", "OpenRouter: DeepSeek-V3"),
+        ],
+    },
+    ProviderDescriptor {
+        id: "ollama",
+        name: "Ollama (Local)",
+        env_var: "OLLAMA_HOST",
+        default_model: "llama3.2",
+        presets: &[
+            ("llama3.2", "Llama 3.2 (Local)"),
+            ("qwen2.5:coder", "Qwen 2.5 Coder (Local)"),
+            ("deepseek-r1:8b", "DeepSeek-R1 8B (Local)"),
+        ],
+    },
+];
+
+fn mask_api_key_str(key: &str) -> String {
+    let len = key.len();
+    if len <= 8 {
+        "••••••••".to_string()
+    } else {
+        format!("{}••••{}", &key[..4], &key[len - 4..])
+    }
+}
+
+fn get_provider_keys_from_config(
+    provider_id: &str,
+    config_val: Option<&toml::Value>,
+    current_mc: &ryvos_core::config::ModelConfig,
+) -> (bool, Vec<String>, Option<String>, Option<String>) {
+    if provider_id == "ollama" {
+        return (true, vec!["local".to_string()], Some("http://localhost:11434".to_string()), Some("llama3.2".to_string()));
+    }
+
+    let mut keys = Vec::new();
+    let mut base_url = None;
+    let mut default_model = None;
+
+    if let Some(cfg) = config_val {
+        if let Some(providers_table) = cfg.get("providers").and_then(|p| p.as_table()) {
+            if let Some(p_entry) = providers_table.get(provider_id).and_then(|p| p.as_table()) {
+                if let Some(k) = p_entry.get("api_key").and_then(|v| v.as_str()) {
+                    for part in k.split(|c| c == ',' || c == '\n' || c == ';') {
+                        let trimmed = part.trim();
+                        if !trimmed.is_empty() && !trimmed.starts_with("${") && !keys.contains(&trimmed.to_string()) {
+                            keys.push(trimmed.to_string());
+                        }
+                    }
+                }
+                if let Some(arr) = p_entry.get("api_keys").and_then(|v| v.as_array()) {
+                    for item in arr {
+                        if let Some(k) = item.as_str() {
+                            let trimmed = k.trim();
+                            if !trimmed.is_empty() && !trimmed.starts_with("${") && !keys.contains(&trimmed.to_string()) {
+                                keys.push(trimmed.to_string());
+                            }
+                        }
+                    }
+                }
+                if let Some(u) = p_entry.get("base_url").and_then(|v| v.as_str()) {
+                    base_url = Some(u.to_string());
+                }
+                if let Some(m) = p_entry.get("default_model").and_then(|v| v.as_str()) {
+                    default_model = Some(m.to_string());
+                }
+            }
+        }
+    }
+
+    let current_prov_norm = match current_mc.provider.as_str() {
+        "google" => "gemini",
+        "claude" | "claude-code" | "claude-cli" => "anthropic",
+        other => other,
+    };
+    if current_prov_norm == provider_id {
+        for k in current_mc.get_api_key_pool() {
+            let trimmed = k.trim();
+            if !trimmed.is_empty() && !trimmed.starts_with("${") && !keys.contains(&trimmed.to_string()) {
+                keys.push(trimmed.to_string());
+            }
+        }
+        if base_url.is_none() {
+            base_url = current_mc.base_url.clone();
+        }
+        if default_model.is_none() {
+            default_model = Some(current_mc.model_id.clone());
+        }
+    }
+
+    if keys.is_empty() {
+        if let Some(desc) = SUPPORTED_PROVIDERS.iter().find(|d| d.id == provider_id) {
+            if !desc.env_var.is_empty() {
+                if let Ok(env_val) = std::env::var(desc.env_var) {
+                    let trimmed = env_val.trim();
+                    if !trimmed.is_empty() && !trimmed.starts_with("${") && !keys.contains(&trimmed.to_string()) {
+                        keys.push(trimmed.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    let has_key = !keys.is_empty();
+    (has_key, keys, base_url, default_model)
+}
+
 #[derive(Deserialize)]
 pub struct ModelsQuery {
     #[serde(default)]
@@ -973,83 +1155,313 @@ pub async fn list_models(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let current_mc = state.runtime.current_model_config();
-    let current_provider = current_mc.provider.clone();
-    let current_model_id = current_mc.model_id.clone();
-    let key_count = current_mc.get_api_key_pool().len();
-
-    let provider = q.provider.unwrap_or(current_provider);
-
-    let models = match provider.as_str() {
-        "anthropic" | "claude" | "claude-code" | "claude-cli" | "claude-sub" => {
-            vec![
-                serde_json::json!({"id": "claude-3-7-sonnet", "name": "Claude 3.7 Sonnet (2026)"}),
-                serde_json::json!({"id": "claude-sonnet-4-20250514", "name": "Claude Sonnet 4"}),
-                serde_json::json!({"id": "claude-opus-4-20250514", "name": "Claude Opus 4"}),
-                serde_json::json!({"id": "claude-3-5-sonnet-20241022", "name": "Claude 3.5 Sonnet"}),
-                serde_json::json!({"id": "claude-3-5-haiku-20241022", "name": "Claude 3.5 Haiku"}),
-            ]
-        }
-        "openai" => {
-            vec![
-                serde_json::json!({"id": "gpt-4.5-preview", "name": "GPT-4.5 Preview"}),
-                serde_json::json!({"id": "gpt-4o", "name": "GPT-4o"}),
-                serde_json::json!({"id": "gpt-4o-mini", "name": "GPT-4o Mini"}),
-                serde_json::json!({"id": "o3-mini", "name": "o3-mini"}),
-                serde_json::json!({"id": "o1", "name": "o1"}),
-            ]
-        }
-        "gemini" | "google" => {
-            vec![
-                serde_json::json!({"id": "gemini-3.6-flash", "name": "Gemini 3.6 Flash (2026)"}),
-                serde_json::json!({"id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash"}),
-                serde_json::json!({"id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro"}),
-                serde_json::json!({"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash"}),
-            ]
-        }
-        "deepseek" => {
-            vec![
-                serde_json::json!({"id": "deepseek-chat", "name": "DeepSeek-V3"}),
-                serde_json::json!({"id": "deepseek-reasoner", "name": "DeepSeek-R1"}),
-            ]
-        }
-        "groq" => {
-            vec![
-                serde_json::json!({"id": "llama-3.3-70b-versatile", "name": "Llama 3.3 70B"}),
-                serde_json::json!({"id": "llama-3.1-8b-instant", "name": "Llama 3.1 8B"}),
-                serde_json::json!({"id": "mixtral-8x7b-32768", "name": "Mixtral 8x7B"}),
-            ]
-        }
-        "openrouter" => {
-            vec![
-                serde_json::json!({"id": "google/gemini-2.5-flash", "name": "OpenRouter: Gemini 2.5 Flash"}),
-                serde_json::json!({"id": "anthropic/claude-3.7-sonnet", "name": "OpenRouter: Claude 3.7 Sonnet"}),
-                serde_json::json!({"id": "deepseek/deepseek-chat", "name": "OpenRouter: DeepSeek-V3"}),
-            ]
-        }
-        "ollama" => {
-            vec![
-                serde_json::json!({"id": "llama3.2", "name": "Llama 3.2 (Local)"}),
-                serde_json::json!({"id": "qwen2.5:coder", "name": "Qwen 2.5 Coder (Local)"}),
-            ]
-        }
-        _ => vec![serde_json::json!({"id": "custom", "name": "Custom Model"})],
+    let config_val = if let Some(ref path) = state.config_path {
+        tokio::fs::read_to_string(path)
+            .await
+            .ok()
+            .and_then(|c| toml::from_str::<toml::Value>(&c).ok())
+    } else {
+        None
     };
 
+    let current_mc = state.runtime.current_model_config();
+    let current_prov_norm = match current_mc.provider.as_str() {
+        "google" => "gemini",
+        "claude" | "claude-code" | "claude-cli" => "anthropic",
+        other => other,
+    };
+
+    let mut active_providers: Vec<serde_json::Value> = Vec::new();
+    let mut active_provider_ids: Vec<String> = Vec::new();
+
+    for desc in SUPPORTED_PROVIDERS {
+        let (has_key, _, _, _) =
+            get_provider_keys_from_config(desc.id, config_val.as_ref(), &current_mc);
+        if has_key {
+            active_providers.push(serde_json::json!({
+                "id": desc.id,
+                "name": desc.name,
+                "default_model": desc.default_model,
+            }));
+            active_provider_ids.push(desc.id.to_string());
+        }
+    }
+
+    let effective_provider = if let Some(ref req_p) = q.provider {
+        let norm = match req_p.as_str() {
+            "google" => "gemini",
+            "claude" | "claude-code" | "claude-cli" => "anthropic",
+            other => other,
+        };
+        if active_provider_ids.contains(&norm.to_string()) {
+            norm.to_string()
+        } else {
+            active_provider_ids.first().cloned().unwrap_or_default()
+        }
+    } else if active_provider_ids.contains(&current_prov_norm.to_string()) {
+        current_prov_norm.to_string()
+    } else {
+        active_provider_ids.first().cloned().unwrap_or_default()
+    };
+
+    let models: Vec<serde_json::Value> = if effective_provider.is_empty() {
+        vec![]
+    } else {
+        match SUPPORTED_PROVIDERS.iter().find(|d| d.id == effective_provider) {
+            Some(desc) => desc
+                .presets
+                .iter()
+                .map(|(id, name)| serde_json::json!({ "id": id, "name": name }))
+                .collect(),
+            None => vec![],
+        }
+    };
+
+    let (_, keys, _, _) = get_provider_keys_from_config(&effective_provider, config_val.as_ref(), &current_mc);
+
     Ok(Json(serde_json::json!({
-        "provider": provider,
-        "model_id": current_model_id,
+        "provider": effective_provider,
+        "model_id": current_mc.model_id,
         "models": models,
-        "key_count": key_count,
-        "all_providers": [
-            {"id": "gemini", "name": "Google Gemini"},
-            {"id": "anthropic", "name": "Anthropic Claude"},
-            {"id": "openai", "name": "OpenAI"},
-            {"id": "deepseek", "name": "DeepSeek"},
-            {"id": "groq", "name": "Groq"},
-            {"id": "openrouter", "name": "OpenRouter"},
-            {"id": "ollama", "name": "Ollama (Local)"}
-        ]
+        "key_count": keys.len(),
+        "all_providers": active_providers,
+        "has_active_keys": !active_provider_ids.is_empty(),
+    })))
+}
+
+pub async fn list_api_keys(
+    Authenticated(auth_result): Authenticated,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !auth::has_viewer_access(&auth_result.role) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    let config_val = if let Some(ref path) = state.config_path {
+        tokio::fs::read_to_string(path)
+            .await
+            .ok()
+            .and_then(|c| toml::from_str::<toml::Value>(&c).ok())
+    } else {
+        None
+    };
+
+    let current_mc = state.runtime.current_model_config();
+    let current_prov_norm = match current_mc.provider.as_str() {
+        "google" => "gemini",
+        "claude" | "claude-code" | "claude-cli" => "anthropic",
+        other => other,
+    };
+
+    let mut providers_resp = Vec::new();
+
+    for desc in SUPPORTED_PROVIDERS {
+        let (has_key, keys, base_url, default_model) =
+            get_provider_keys_from_config(desc.id, config_val.as_ref(), &current_mc);
+
+        let masked_keys: Vec<String> = keys.iter().map(|k| mask_api_key_str(k)).collect();
+        let is_active = current_prov_norm == desc.id;
+
+        let models: Vec<serde_json::Value> = desc
+            .presets
+            .iter()
+            .map(|(id, name)| serde_json::json!({ "id": id, "name": name }))
+            .collect();
+
+        providers_resp.push(serde_json::json!({
+            "id": desc.id,
+            "name": desc.name,
+            "has_key": has_key,
+            "key_count": keys.len(),
+            "masked_keys": masked_keys,
+            "base_url": base_url,
+            "is_active": is_active,
+            "default_model": default_model.unwrap_or_else(|| desc.default_model.to_string()),
+            "models": models,
+        }));
+    }
+
+    Ok(Json(serde_json::json!({
+        "providers": providers_resp,
+        "active_provider": current_mc.provider,
+        "active_model_id": current_mc.model_id,
+        "active_keys_count": current_mc.get_api_key_pool().len(),
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct PutApiKeyBody {
+    pub provider: String,
+    pub api_key: Option<String>,
+    pub api_keys: Option<Vec<String>>,
+    pub base_url: Option<String>,
+    pub default_model: Option<String>,
+    pub activate: Option<bool>,
+}
+
+pub async fn put_api_key(
+    Authenticated(auth_result): Authenticated,
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<PutApiKeyBody>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !auth::has_operator_access(&auth_result.role) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    let provider = body.provider.trim().to_lowercase();
+    let path = state.config_path.as_ref().ok_or(StatusCode::NOT_FOUND)?;
+
+    let content = tokio::fs::read_to_string(path).await.unwrap_or_default();
+    let mut config: toml::Value = toml::from_str(&content).unwrap_or_else(|_| toml::Value::Table(toml::map::Map::new()));
+
+    if !config.is_table() {
+        config = toml::Value::Table(toml::map::Map::new());
+    }
+
+    let config_table = config.as_table_mut().unwrap();
+    if !config_table.contains_key("providers") {
+        config_table.insert("providers".to_string(), toml::Value::Table(toml::map::Map::new()));
+    }
+
+    let providers_table = config_table.get_mut("providers").and_then(|p| p.as_table_mut()).unwrap();
+    if !providers_table.contains_key(&provider) {
+        providers_table.insert(provider.clone(), toml::Value::Table(toml::map::Map::new()));
+    }
+
+    let prov_entry = providers_table.get_mut(&provider).and_then(|p| p.as_table_mut()).unwrap();
+    let mut pool_keys: Vec<String> = Vec::new();
+
+    if let Some(ref k) = body.api_key {
+        let trimmed = k.trim();
+        if !trimmed.is_empty() {
+            prov_entry.insert("api_key".to_string(), toml::Value::String(trimmed.to_string()));
+            for part in trimmed.split(|c| c == ',' || c == '\n' || c == ';') {
+                let p = part.trim();
+                if !p.is_empty() && !pool_keys.contains(&p.to_string()) {
+                    pool_keys.push(p.to_string());
+                }
+            }
+        }
+    }
+
+    if let Some(ref arr) = body.api_keys {
+        let toml_arr: Vec<toml::Value> = arr.iter().filter_map(|s| {
+            let t = s.trim();
+            if !t.is_empty() {
+                if !pool_keys.contains(&t.to_string()) {
+                    pool_keys.push(t.to_string());
+                }
+                Some(toml::Value::String(t.to_string()))
+            } else {
+                None
+            }
+        }).collect();
+        prov_entry.insert("api_keys".to_string(), toml::Value::Array(toml_arr));
+    }
+
+    if let Some(ref u) = body.base_url {
+        prov_entry.insert("base_url".to_string(), toml::Value::String(u.trim().to_string()));
+    }
+
+    if let Some(ref m) = body.default_model {
+        prov_entry.insert("default_model".to_string(), toml::Value::String(m.trim().to_string()));
+    }
+
+    let should_activate = body.activate.unwrap_or(false);
+    let mut current_mc = state.runtime.current_model_config();
+    let is_currently_this_provider = match current_mc.provider.as_str() {
+        "google" => "gemini" == provider,
+        "claude" | "claude-code" | "claude-cli" => "anthropic" == provider,
+        other => other == provider,
+    };
+
+    if should_activate || is_currently_this_provider {
+        current_mc.provider = provider.clone();
+        if let Some(ref m) = body.default_model {
+            current_mc.model_id = m.clone();
+        } else if let Some(desc) = SUPPORTED_PROVIDERS.iter().find(|d| d.id == provider) {
+            current_mc.model_id = desc.default_model.to_string();
+        }
+        if let Some(first_key) = pool_keys.first() {
+            current_mc.api_key = Some(first_key.clone());
+        }
+        current_mc.api_keys = pool_keys.clone();
+        if let Some(ref u) = body.base_url {
+            current_mc.base_url = Some(u.clone());
+        }
+
+        state.runtime.update_model_config(current_mc.clone());
+
+        if let Some(model_table) = config_table.get_mut("model").and_then(|m| m.as_table_mut()) {
+            model_table.insert("provider".to_string(), toml::Value::String(current_mc.provider.clone()));
+            model_table.insert("model_id".to_string(), toml::Value::String(current_mc.model_id.clone()));
+            if let Some(ref k) = current_mc.api_key {
+                model_table.insert("api_key".to_string(), toml::Value::String(k.clone()));
+            }
+            let toml_keys: Vec<toml::Value> = current_mc.api_keys.iter().map(|k| toml::Value::String(k.clone())).collect();
+            model_table.insert("api_keys".to_string(), toml::Value::Array(toml_keys));
+            if let Some(ref u) = current_mc.base_url {
+                model_table.insert("base_url".to_string(), toml::Value::String(u.clone()));
+            }
+        }
+    }
+
+    if let Ok(new_content) = toml::to_string_pretty(&config) {
+        let _ = tokio::fs::write(path, &new_content).await;
+    }
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "provider": provider,
+        "is_active": should_activate || is_currently_this_provider,
+        "key_count": pool_keys.len(),
+    })))
+}
+
+pub async fn delete_api_key(
+    Authenticated(auth_result): Authenticated,
+    State(state): State<Arc<AppState>>,
+    Path(provider): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !auth::has_operator_access(&auth_result.role) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    let provider = provider.trim().to_lowercase();
+    let path = state.config_path.as_ref().ok_or(StatusCode::NOT_FOUND)?;
+
+    let content = tokio::fs::read_to_string(path).await.unwrap_or_default();
+    if let Ok(mut config) = toml::from_str::<toml::Value>(&content) {
+        if let Some(providers_table) = config.get_mut("providers").and_then(|p| p.as_table_mut()) {
+            providers_table.remove(&provider);
+        }
+
+        let mut current_mc = state.runtime.current_model_config();
+        let current_prov_norm = match current_mc.provider.as_str() {
+            "google" => "gemini",
+            "claude" | "claude-code" | "claude-cli" => "anthropic",
+            other => other,
+        };
+
+        if current_prov_norm == provider {
+            current_mc.api_key = None;
+            current_mc.api_keys.clear();
+            state.runtime.update_model_config(current_mc.clone());
+
+            if let Some(model_table) = config.get_mut("model").and_then(|m| m.as_table_mut()) {
+                model_table.remove("api_key");
+                model_table.remove("api_keys");
+            }
+        }
+
+        if let Ok(new_content) = toml::to_string_pretty(&config) {
+            let _ = tokio::fs::write(path, &new_content).await;
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "deleted": provider,
     })))
 }
 
@@ -1081,7 +1493,10 @@ pub async fn put_model(
         current_mc.model_id = m.clone();
     }
     if let Some(ref k) = body.api_key {
-        current_mc.api_key = Some(k.clone());
+        let trimmed = k.trim();
+        if !trimmed.is_empty() {
+            current_mc.api_key = Some(trimmed.to_string());
+        }
     }
     if let Some(ref arr) = body.api_keys {
         current_mc.api_keys = arr.clone();
@@ -1093,11 +1508,42 @@ pub async fn put_model(
         current_mc.max_tokens = m;
     }
 
-    state.runtime.update_model_config(current_mc.clone());
-
     if let Some(ref path) = state.config_path {
         if let Ok(content) = tokio::fs::read_to_string(path).await {
             if let Ok(mut config) = toml::from_str::<toml::Value>(&content) {
+                if body.api_key.is_none() && body.api_keys.is_none() {
+                    let (_, keys, base_url, _) = get_provider_keys_from_config(&current_mc.provider, Some(&config), &current_mc);
+                    if !keys.is_empty() {
+                        current_mc.api_key = keys.first().cloned();
+                        current_mc.api_keys = keys;
+                    }
+                    if base_url.is_some() {
+                        current_mc.base_url = base_url;
+                    }
+                }
+
+                if let Some(cfg_table) = config.as_table_mut() {
+                    if !cfg_table.contains_key("providers") {
+                        cfg_table.insert("providers".to_string(), toml::Value::Table(toml::map::Map::new()));
+                    }
+                    if let Some(prov_table) = cfg_table.get_mut("providers").and_then(|p| p.as_table_mut()) {
+                        let prov_key = current_mc.provider.clone();
+                        if !prov_table.contains_key(&prov_key) {
+                            prov_table.insert(prov_key.clone(), toml::Value::Table(toml::map::Map::new()));
+                        }
+                        if let Some(entry) = prov_table.get_mut(&prov_key).and_then(|p| p.as_table_mut()) {
+                            if let Some(ref k) = current_mc.api_key {
+                                entry.insert("api_key".to_string(), toml::Value::String(k.clone()));
+                            }
+                            if !current_mc.api_keys.is_empty() {
+                                let toml_arr = current_mc.api_keys.iter().map(|s| toml::Value::String(s.clone())).collect();
+                                entry.insert("api_keys".to_string(), toml::Value::Array(toml_arr));
+                            }
+                            entry.insert("default_model".to_string(), toml::Value::String(current_mc.model_id.clone()));
+                        }
+                    }
+                }
+
                 if let Some(model) = config.get_mut("model").and_then(|m| m.as_table_mut()) {
                     if let Some(ref v) = body.provider {
                         model.insert("provider".to_string(), toml::Value::String(v.clone()));
@@ -1105,13 +1551,11 @@ pub async fn put_model(
                     if let Some(ref v) = body.model_id {
                         model.insert("model_id".to_string(), toml::Value::String(v.clone()));
                     }
-                    if let Some(ref v) = body.api_key {
-                        model.insert("api_key".to_string(), toml::Value::String(v.clone()));
+                    if let Some(ref k) = current_mc.api_key {
+                        model.insert("api_key".to_string(), toml::Value::String(k.clone()));
                     }
-                    if let Some(ref arr) = body.api_keys {
-                        let toml_arr = arr.iter().map(|s| toml::Value::String(s.clone())).collect();
-                        model.insert("api_keys".to_string(), toml::Value::Array(toml_arr));
-                    }
+                    let toml_arr = current_mc.api_keys.iter().map(|s| toml::Value::String(s.clone())).collect();
+                    model.insert("api_keys".to_string(), toml::Value::Array(toml_arr));
                     if let Some(v) = body.temperature {
                         model.insert("temperature".to_string(), toml::Value::Float(v as f64));
                     }
@@ -1128,6 +1572,8 @@ pub async fn put_model(
             }
         }
     }
+
+    state.runtime.update_model_config(current_mc.clone());
 
     Ok(Json(serde_json::json!({
         "ok": true,

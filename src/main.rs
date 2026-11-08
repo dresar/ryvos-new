@@ -2352,6 +2352,7 @@ fn create_env_config() -> anyhow::Result<AppConfig> {
         jira: None,
         linear: None,
         integrations: Default::default(),
+        providers: Default::default(),
     })
 }
 

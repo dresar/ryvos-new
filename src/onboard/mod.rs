@@ -298,6 +298,7 @@ async fn run_non_interactive(config_path: &Path, options: InitOptions) -> Result
         jira: None,
         linear: None,
         integrations: Default::default(),
+        providers: Default::default(),
     };
 
     if let Some(parent) = config_path.parent() {
@@ -773,6 +774,7 @@ async fn run_interactive(config_path: &Path) -> Result<()> {
         jira: None,
         linear: None,
         integrations: Default::default(),
+        providers: Default::default(),
     };
 
     if let Some(parent) = config_path.parent() {

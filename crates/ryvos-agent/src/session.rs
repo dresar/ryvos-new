@@ -33,7 +33,11 @@ impl SessionManager {
             return info.session_id.clone();
         }
 
-        let session_id = SessionId::new();
+        let session_id = if uuid::Uuid::parse_str(key).is_ok() {
+            SessionId(key.to_string())
+        } else {
+            SessionId::new()
+        };
         sessions.insert(
             key.to_string(),
             SessionInfo {

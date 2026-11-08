@@ -189,6 +189,47 @@ pub struct AppConfig {
     /// One-click OAuth integrations.
     #[serde(default)]
     pub integrations: IntegrationsConfig,
+    #[serde(default)]
+    pub providers: std::collections::HashMap<String, ProviderSettings>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ProviderSettings {
+    #[serde(default)]
+    pub api_key: Option<String>,
+    #[serde(default)]
+    pub api_keys: Vec<String>,
+    #[serde(default)]
+    pub base_url: Option<String>,
+    #[serde(default)]
+    pub default_model: Option<String>,
+}
+
+impl ProviderSettings {
+    pub fn get_api_key_pool(&self) -> Vec<String> {
+        let mut keys = Vec::new();
+        if let Some(ref key) = self.api_key {
+            for part in key.split(|c| c == ',' || c == '\n' || c == ';') {
+                let trimmed = part.trim();
+                if !trimmed.is_empty() && !keys.contains(&trimmed.to_string()) {
+                    keys.push(trimmed.to_string());
+                }
+            }
+        }
+        for k in &self.api_keys {
+            for part in k.split(|c| c == ',' || c == '\n' || c == ';') {
+                let trimmed = part.trim();
+                if !trimmed.is_empty() && !keys.contains(&trimmed.to_string()) {
+                    keys.push(trimmed.to_string());
+                }
+            }
+        }
+        keys
+    }
+
+    pub fn has_key(&self) -> bool {
+        !self.get_api_key_pool().is_empty()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

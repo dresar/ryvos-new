@@ -27,12 +27,17 @@ config.toml
 
 # Ryvos workspace data
 .ryvos/
+.codegraph/
+*.pid
 
 # Agent teamwork scratch
 .agents/teamwork/
 
 # Node
 node_modules/
-crates/ryvos-gateway/ui-src/node_modules/
+crates/ryvos-gateway/ui-next/node_modules/
+crates/ryvos-gateway/ui-next/.next/
+crates/ryvos-gateway/ui-next/out/
+
 
 
