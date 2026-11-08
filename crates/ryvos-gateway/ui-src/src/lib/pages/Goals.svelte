@@ -101,15 +101,15 @@
   });
 </script>
 
-<div class="space-y-6">
+<div class="space-y-4 sm:space-y-6">
   <div>
-    <h2 class="text-2xl font-bold tracking-tight text-[var(--color-text-main)]">Autonomous Goals Orchestration</h2>
-    <p class="text-sm text-[var(--color-text-muted)] mt-1">Autonomous OODA execution loops with runtime self-evaluation and telemetry</p>
+    <h2 class="text-sm sm:text-base font-bold tracking-tight text-[var(--color-text-main)]">Autonomous Goals Orchestration</h2>
+    <p class="text-xs text-[var(--color-text-muted)] mt-0.5">Autonomous OODA execution loops with runtime self-evaluation and telemetry</p>
   </div>
 
-  <div class="neu-card p-6 space-y-4">
+  <div class="neu-card p-3 sm:p-5 space-y-3 sm:space-y-4">
     <div>
-      <label for="goal-description" class="block text-xs font-bold uppercase tracking-wider text-[var(--color-text-muted)] mb-2">
+      <label for="goal-description" class="block text-xs font-bold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">
         Goal Objective
       </label>
       <textarea
@@ -117,19 +117,19 @@
         bind:value={goalDescription}
         placeholder="Specify the objective for the autonomous agent runtime to plan, execute, and verify..."
         rows="3"
-        class="neu-inset w-full p-4 text-sm font-mono rounded-xl resize-none text-[var(--color-text-main)] min-h-[96px]"
+        class="neu-inset w-full p-2.5 sm:p-3 text-xs sm:text-sm font-mono rounded-xl resize-none text-[var(--color-text-main)] min-h-[80px]"
       ></textarea>
     </div>
 
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2">
-      <div class="flex items-center gap-3">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+      <div class="flex items-center gap-2">
         <label for="goal-channel" class="text-xs font-semibold text-[var(--color-text-muted)] whitespace-nowrap">
           Notification Route:
         </label>
         <select
           id="goal-channel"
           bind:value={channel}
-          class="neu-inset min-h-[44px] px-3 py-2 text-sm rounded-xl text-[var(--color-text-main)] bg-[var(--color-surface)]"
+          class="neu-inset min-h-[36px] px-2.5 py-1.5 text-xs sm:text-sm rounded-lg text-[var(--color-text-main)] bg-[var(--color-surface)]"
         >
           <option value="">Gateway Control Plane Only</option>
           <option value="telegram">Telegram Broadcast</option>
@@ -140,7 +140,7 @@
         type="button"
         onclick={executeGoal}
         disabled={executing || !goalDescription.trim()}
-        class="btn-primary min-h-[44px] px-6 py-2 rounded-xl text-sm font-semibold disabled:opacity-40"
+        class="btn-primary min-h-[36px] px-4 py-1.5 rounded-lg text-xs sm:text-sm font-semibold disabled:opacity-40"
       >
         {executing ? 'Executing Objective...' : 'Launch Goal Loop'}
       </button>
@@ -148,19 +148,19 @@
   </div>
 
   {#if executing || result || error}
-    <div class="neu-card p-6 space-y-4 border-l-4 {error ? 'border-[var(--color-danger)]' : executing ? 'border-[var(--color-primary)]' : 'border-[var(--color-success)]'}">
+    <div class="neu-card p-3 sm:p-5 space-y-3 sm:space-y-4 border-l-4 {error ? 'border-[var(--color-danger)]' : executing ? 'border-[var(--color-primary)]' : 'border-[var(--color-success)]'}">
       <div class="flex items-center justify-between">
-        <h3 class="text-sm font-bold uppercase tracking-wider text-[var(--color-text-main)]">Live Execution Status</h3>
+        <h3 class="text-xs sm:text-sm font-bold uppercase tracking-wider text-[var(--color-text-main)]">Live Execution Status</h3>
         {#if executing}
-          <span class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold badge-info animate-pulse">
+          <span class="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold badge-info animate-pulse">
             Active Run
           </span>
         {:else if error}
-          <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold badge-danger">
+          <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold badge-danger">
             Failed
           </span>
         {:else}
-          <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold badge-success">
+          <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold badge-success">
             Success
           </span>
         {/if}
@@ -173,7 +173,7 @@
       {/if}
 
       {#if judgeEvents.length > 0}
-        <div class="neu-inset p-3 rounded-xl space-y-2">
+        <div class="neu-inset p-2.5 sm:p-3 rounded-xl space-y-1.5">
           <div class="text-xs font-bold text-[var(--color-primary)]">Judge and Evaluator Verdicts</div>
           {#each judgeEvents as je}
             <div class="text-xs flex items-center justify-between text-[var(--color-text-main)]">
@@ -185,7 +185,7 @@
       {/if}
 
       {#if toolEvents.length > 0}
-        <div class="neu-inset p-3 rounded-xl max-h-48 overflow-y-auto space-y-1 font-mono text-xs">
+        <div class="neu-inset p-2.5 sm:p-3 rounded-xl max-h-48 overflow-y-auto space-y-1 font-mono text-xs">
           {#each toolEvents as evt}
             <div class="flex items-center gap-2 py-0.5">
               <span class={evt.kind === 'start' ? 'text-[var(--color-primary)] font-bold' : 'text-[var(--color-success)] font-bold'}>
@@ -201,19 +201,19 @@
       {#if currentStream && executing}
         <div class="space-y-1">
           <div class="text-xs font-semibold text-[var(--color-text-muted)]">Live Stream Output:</div>
-          <pre class="p-4 rounded-xl neu-inset text-xs font-mono whitespace-pre-wrap leading-relaxed text-[var(--color-text-main)] max-h-64 overflow-y-auto">{currentStream}</pre>
+          <pre class="p-3 rounded-xl neu-inset text-xs font-mono whitespace-pre-wrap leading-relaxed text-[var(--color-text-main)] max-h-64 overflow-y-auto">{currentStream}</pre>
         </div>
       {/if}
 
       {#if result && !executing}
         <div class="space-y-1">
           <div class="text-xs font-semibold text-[var(--color-success)]">Execution Outcome:</div>
-          <pre class="p-4 rounded-xl neu-inset text-xs font-mono whitespace-pre-wrap leading-relaxed text-[var(--color-text-main)] max-h-64 overflow-y-auto">{result}</pre>
+          <pre class="p-3 rounded-xl neu-inset text-xs font-mono whitespace-pre-wrap leading-relaxed text-[var(--color-text-main)] max-h-64 overflow-y-auto">{result}</pre>
         </div>
       {/if}
 
       {#if error}
-        <div class="p-3 rounded-xl bg-red-500/10 text-xs font-mono text-[var(--color-danger)]">
+        <div class="p-2.5 rounded-xl bg-red-500/10 text-xs font-mono text-[var(--color-danger)]">
           {error}
         </div>
       {/if}
@@ -221,50 +221,50 @@
   {/if}
 
   <div class="space-y-3">
-    <h3 class="text-lg font-bold text-[var(--color-text-main)]">Goal Execution Archives</h3>
+    <h3 class="text-sm sm:text-base font-bold text-[var(--color-text-main)]">Goal Execution Archives</h3>
     {#if historyLoading}
-      <div class="neu-card p-8 text-center text-sm text-[var(--color-text-muted)]">
+      <div class="neu-card p-4 sm:p-6 text-center text-xs sm:text-sm text-[var(--color-text-muted)]">
         Loading historical runs...
       </div>
     {:else if history.length === 0}
-      <div class="neu-card p-8 text-center text-sm text-[var(--color-text-muted)]">
+      <div class="neu-card p-4 sm:p-6 text-center text-xs sm:text-sm text-[var(--color-text-muted)]">
         No previous runs archived. Execute a goal above to start telemetry collection.
       </div>
     {:else}
       <div class="neu-card p-0 overflow-hidden">
-        <div class="table-scroll">
-          <table class="w-full text-left text-sm">
+        <div class="table-scroll overflow-x-auto">
+          <table class="w-full text-left text-xs">
             <thead class="border-b border-[var(--color-border)] bg-[var(--color-surface)]">
               <tr>
-                <th class="px-4 py-3 text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">Timestamp</th>
-                <th class="px-4 py-3 text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">Session</th>
-                <th class="px-4 py-3 text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">Turns</th>
-                <th class="px-4 py-3 text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">Status</th>
+                <th class="px-2.5 py-2 text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">Timestamp</th>
+                <th class="px-2.5 py-2 text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">Session</th>
+                <th class="px-2.5 py-2 text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">Turns</th>
+                <th class="px-2.5 py-2 text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">Status</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-[var(--color-border)]">
               {#each history as run}
                 <tr class="hover:bg-[var(--color-bg)] transition-colors">
-                  <td class="px-4 py-3 font-mono text-xs tabular-nums text-[var(--color-text-muted)] whitespace-nowrap">
+                  <td class="px-2.5 py-2 font-mono text-xs tabular-nums text-[var(--color-text-muted)] whitespace-nowrap">
                     {formatTime(run.start_time)}
                   </td>
-                  <td class="px-4 py-3 font-mono text-xs text-[var(--color-text-main)]">
+                  <td class="px-2.5 py-2 font-mono text-xs text-[var(--color-text-main)]">
                     {(run.session_id || '').substring(0, 24)}
                   </td>
-                  <td class="px-4 py-3 font-mono text-xs tabular-nums text-[var(--color-text-main)]">
+                  <td class="px-2.5 py-2 font-mono text-xs tabular-nums text-[var(--color-text-main)]">
                     {run.total_turns || 0}
                   </td>
-                  <td class="px-4 py-3 whitespace-nowrap">
+                  <td class="px-2.5 py-2 whitespace-nowrap">
                     {#if run.status === 'complete' || run.status === 'success'}
-                      <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold badge-success">
+                      <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold badge-success">
                         Completed
                       </span>
                     {:else if run.status === 'running'}
-                      <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold badge-warning">
+                      <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold badge-warning">
                         Running
                       </span>
                     {:else}
-                      <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold badge-danger">
+                      <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold badge-danger">
                         {run.status || 'Failed'}
                       </span>
                     {/if}

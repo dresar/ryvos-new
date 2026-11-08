@@ -127,14 +127,14 @@
     <div class="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
       <header
         aria-label="Application header"
-        class="h-[60px] shrink-0 sticky top-0 z-30 px-4 lg:px-8 flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-surface)]/85 backdrop-blur-md"
+        class="h-12 sm:h-14 shrink-0 sticky top-0 z-30 px-2.5 sm:px-6 flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-surface)]/85 backdrop-blur-md"
       >
         <div class="flex items-center gap-3 min-w-0">
           <button
             type="button"
             aria-label="Open navigation menu"
             aria-expanded={sidebarOpen}
-            class="lg:hidden min-h-[44px] min-w-[44px] btn-soft flex items-center justify-center p-2 rounded-xl text-[var(--color-text)]"
+            class="lg:hidden min-h-[36px] min-w-[36px] btn-soft flex items-center justify-center p-1.5 rounded-lg text-[var(--color-text)]"
             onclick={() => sidebarOpen = true}
           >
             <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -142,7 +142,7 @@
             </svg>
           </button>
 
-          <h1 class="text-base sm:text-lg font-bold tracking-tight text-[var(--color-text)] truncate m-0">
+          <h1 class="text-sm sm:text-base font-bold tracking-tight text-[var(--color-text)] truncate m-0">
             {pageTitle}
           </h1>
         </div>
@@ -161,7 +161,7 @@
           <button
             type="button"
             aria-label="Search and quick command palette"
-            class="min-h-[44px] min-w-[44px] btn-soft flex items-center gap-2 px-3 py-2 rounded-xl text-xs text-[var(--color-text-secondary)]"
+            class="min-h-[36px] min-w-[36px] btn-soft flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-[var(--color-text-secondary)]"
             onclick={() => showCommandPalette = true}
           >
             <svg class="w-4 h-4 text-[var(--color-primary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -173,7 +173,7 @@
           <button
             type="button"
             aria-label="Toggle visual theme"
-            class="min-h-[44px] min-w-[44px] btn-soft flex items-center justify-center p-2 rounded-xl text-[var(--color-text)]"
+            class="min-h-[36px] min-w-[36px] btn-soft flex items-center justify-center p-1.5 rounded-lg text-[var(--color-text)]"
             onclick={toggleTheme}
           >
             {#if theme === 'light'}
@@ -192,7 +192,7 @@
       <main
         id="main-content"
         tabindex="-1"
-        class="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] md:pb-8 outline-none"
+        class="flex-1 overflow-y-auto p-2 sm:p-4 lg:p-6 pb-[calc(4.5rem+env(safe-area-inset-bottom,0px))] md:pb-6 outline-none"
       >
         {#if currentRoute === 'chat'}
           <Chat sessionId={routeParam} />

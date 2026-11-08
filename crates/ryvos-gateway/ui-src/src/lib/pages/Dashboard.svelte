@@ -126,27 +126,27 @@
       </div>
     {/if}
 
-    <div class="neu-focal p-6 sm:p-8 flex flex-col md:flex-row md:items-center justify-between gap-6">
-      <div class="space-y-2">
-        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-[var(--color-primary-soft)] text-[var(--color-primary)]">
+    <div class="neu-focal p-3 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-6">
+      <div class="space-y-1.5 sm:space-y-2">
+        <div class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-bold bg-[var(--color-primary-soft)] text-[var(--color-primary)]">
           <span class="w-2 h-2 rounded-full bg-[var(--color-success)]"></span>
           Cluster Node: eka-12 (Production Ready)
         </div>
-        <h3 class="text-xl sm:text-2xl font-extrabold text-[var(--color-text)] tracking-tight">
+        <h3 class="text-base sm:text-2xl font-bold text-[var(--color-text)] tracking-tight">
           System Status: {status === 'ok' ? 'Nominal' : status}
         </h3>
-        <p class="text-xs sm:text-sm text-[var(--color-text-secondary)] max-w-xl">
+        <p class="text-[11px] sm:text-sm text-[var(--color-text-secondary)] max-w-xl">
           Ryvos v{version} runtime running with rootless Bubblewrap sandbox, lock-free SSE streaming, and persistent Viking SQLite memory.
         </p>
       </div>
-      <div class="flex flex-wrap items-center gap-3 shrink-0">
-        <a href="#/chat" class="btn-primary">
+      <div class="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0">
+        <a href="#/chat" class="btn-primary text-xs px-3 py-1.5 min-h-[36px]">
           <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
           </svg>
           <span>Start Agent Session</span>
         </a>
-        <a href="#/goals" class="btn-soft">
+        <a href="#/goals" class="btn-soft text-xs px-3 py-1.5 min-h-[36px]">
           <svg class="w-4 h-4 text-[var(--color-primary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>
           </svg>
@@ -155,35 +155,35 @@
       </div>
     </div>
 
-    <div class="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
-      <div class="neu-card p-4 sm:p-5">
-        <p class="text-xs font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">Active Sessions</p>
-        <p class="mt-2 text-2xl sm:text-3xl font-bold text-[var(--color-text)] tabular-nums">{activeSessions}</p>
-        <p class="mt-1 text-[11px] text-[var(--color-text-secondary)]">WebUI & WebSocket</p>
+    <div class="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3">
+      <div class="neu-card p-2.5 sm:p-4">
+        <p class="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">Active Sessions</p>
+        <p class="mt-1 sm:mt-2 text-lg sm:text-2xl font-bold text-[var(--color-text)] tabular-nums">{activeSessions}</p>
+        <p class="mt-0.5 sm:mt-1 text-[10px] sm:text-xs text-[var(--color-text-secondary)]">WebUI & WebSocket</p>
       </div>
 
-      <div class="neu-card p-4 sm:p-5">
-        <p class="text-xs font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">Total Runs</p>
-        <p class="mt-2 text-2xl sm:text-3xl font-bold text-[var(--color-text)] tabular-nums">{formatNumber(totalRuns)}</p>
-        <p class="mt-1 text-[11px] text-[var(--color-text-secondary)]">Executed cycles</p>
+      <div class="neu-card p-2.5 sm:p-4">
+        <p class="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">Total Runs</p>
+        <p class="mt-1 sm:mt-2 text-lg sm:text-2xl font-bold text-[var(--color-text)] tabular-nums">{formatNumber(totalRuns)}</p>
+        <p class="mt-0.5 sm:mt-1 text-[10px] sm:text-xs text-[var(--color-text-secondary)]">Executed cycles</p>
       </div>
 
-      <div class="neu-card p-4 sm:p-5">
-        <p class="text-xs font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">Total Tokens</p>
-        <p class="mt-2 text-2xl sm:text-3xl font-bold text-[var(--color-text)] tabular-nums">{formatNumber(totalTokens)}</p>
-        <p class="mt-1 text-[11px] text-[var(--color-text-secondary)]">Input & output</p>
+      <div class="neu-card p-2.5 sm:p-4">
+        <p class="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">Total Tokens</p>
+        <p class="mt-1 sm:mt-2 text-lg sm:text-2xl font-bold text-[var(--color-text)] tabular-nums">{formatNumber(totalTokens)}</p>
+        <p class="mt-0.5 sm:mt-1 text-[10px] sm:text-xs text-[var(--color-text-secondary)]">Input & output</p>
       </div>
 
-      <div class="neu-card p-4 sm:p-5">
-        <p class="text-xs font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">Viking Memories</p>
-        <p class="mt-2 text-2xl sm:text-3xl font-bold text-[var(--color-text)] tabular-nums">{formatNumber(vikingEntries)}</p>
-        <p class="mt-1 text-[11px] text-[var(--color-text-secondary)]">L0/L1/L2 database</p>
+      <div class="neu-card p-2.5 sm:p-4">
+        <p class="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">Viking Memories</p>
+        <p class="mt-1 sm:mt-2 text-lg sm:text-2xl font-bold text-[var(--color-text)] tabular-nums">{formatNumber(vikingEntries)}</p>
+        <p class="mt-0.5 sm:mt-1 text-[10px] sm:text-xs text-[var(--color-text-secondary)]">L0/L1/L2 database</p>
       </div>
 
-      <div class="neu-card p-4 sm:p-5 col-span-2 sm:col-span-1">
-        <p class="text-xs font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">Node Uptime</p>
-        <p class="mt-2 text-2xl sm:text-3xl font-bold text-[var(--color-text)] tabular-nums">{formatUptime(uptimeSecs)}</p>
-        <p class="mt-1 text-[11px] text-[var(--color-text-secondary)]">Continuous runtime</p>
+      <div class="neu-card p-2.5 sm:p-4 col-span-2 sm:col-span-1">
+        <p class="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">Node Uptime</p>
+        <p class="mt-1 sm:mt-2 text-lg sm:text-2xl font-bold text-[var(--color-text)] tabular-nums">{formatUptime(uptimeSecs)}</p>
+        <p class="mt-0.5 sm:mt-1 text-[10px] sm:text-xs text-[var(--color-text-secondary)]">Continuous runtime</p>
       </div>
     </div>
 

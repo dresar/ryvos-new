@@ -38,39 +38,39 @@
   }
 </script>
 
-<div class="space-y-6">
+<div class="space-y-4 sm:space-y-6">
   <div>
-    <h2 class="text-2xl font-bold tracking-tight text-[var(--color-text-main)]">Cost and Token Telemetry</h2>
-    <p class="text-sm text-[var(--color-text-muted)] mt-1">Realtime aggregation of API spend, tokens, and billing across LLM providers</p>
+    <h2 class="text-sm sm:text-base font-bold tracking-tight text-[var(--color-text-main)]">Cost and Token Telemetry</h2>
+    <p class="text-xs text-[var(--color-text-muted)] mt-0.5">Realtime aggregation of API spend, tokens, and billing across LLM providers</p>
   </div>
 
-  <div class="neu-card p-4 flex items-center gap-4 flex-wrap">
-    <div class="flex items-center gap-2">
+  <div class="neu-card p-2.5 sm:p-4 flex items-center gap-2 sm:gap-4 flex-wrap">
+    <div class="flex items-center gap-1.5">
       <label for="cost-from-date" class="text-xs font-semibold text-[var(--color-text-muted)]">From</label>
       <input
         id="cost-from-date"
         type="date"
         bind:value={fromDate}
-        class="neu-inset min-h-[44px] px-3 py-2 text-xs text-[var(--color-text-main)] rounded-xl"
+        class="neu-inset min-h-[36px] px-2.5 py-1.5 text-xs text-[var(--color-text-main)] rounded-lg"
       />
     </div>
 
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-1.5">
       <label for="cost-to-date" class="text-xs font-semibold text-[var(--color-text-muted)]">To</label>
       <input
         id="cost-to-date"
         type="date"
         bind:value={toDate}
-        class="neu-inset min-h-[44px] px-3 py-2 text-xs text-[var(--color-text-main)] rounded-xl"
+        class="neu-inset min-h-[36px] px-2.5 py-1.5 text-xs text-[var(--color-text-main)] rounded-lg"
       />
     </div>
 
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-1.5">
       <label for="cost-group-by" class="text-xs font-semibold text-[var(--color-text-muted)]">Group By</label>
       <select
         id="cost-group-by"
         bind:value={groupBy}
-        class="neu-inset min-h-[44px] px-3 py-2 text-xs text-[var(--color-text-main)] rounded-xl bg-[var(--color-surface)]"
+        class="neu-inset min-h-[36px] px-2.5 py-1.5 text-xs text-[var(--color-text-main)] rounded-lg bg-[var(--color-surface)]"
       >
         <option value="model">Model</option>
         <option value="provider">Provider</option>
@@ -81,25 +81,25 @@
     <button
       type="button"
       onclick={loadCosts}
-      class="btn-primary min-h-[44px] px-5 py-2 text-xs font-semibold rounded-xl ml-auto"
+      class="btn-primary min-h-[36px] px-3.5 py-1.5 text-xs font-semibold rounded-lg ml-auto"
     >
       Update View
     </button>
   </div>
 
   {#if loading}
-    <div class="neu-card p-12 text-center">
+    <div class="neu-card p-6 sm:p-8 text-center">
       <div class="inline-block w-8 h-8 border-4 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin mb-3"></div>
-      <p class="text-sm text-[var(--color-text-muted)]">Computing cost aggregation...</p>
+      <p class="text-xs sm:text-sm text-[var(--color-text-muted)]">Computing cost aggregation...</p>
     </div>
   {:else if error}
-    <div class="neu-card p-8 border-l-4 border-[var(--color-danger)] text-left">
-      <h3 class="text-base font-bold text-[var(--color-danger)] mb-1">Cost Tracking Offline</h3>
-      <p class="text-sm text-[var(--color-text-muted)]">{error}</p>
+    <div class="neu-card p-3 sm:p-5 border-l-4 border-[var(--color-danger)] text-left">
+      <h3 class="text-sm sm:text-base font-bold text-[var(--color-danger)] mb-1">Cost Tracking Offline</h3>
+      <p class="text-xs sm:text-sm text-[var(--color-text-muted)]">{error}</p>
     </div>
   {:else}
     {#if summary}
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4">
         <MetricCard
           label="Total Cost"
           value={'$' + ((summary.total_cost_cents || 0) / 100).toFixed(2)}
@@ -124,26 +124,26 @@
     {/if}
 
     {#if breakdown.length === 0}
-      <div class="neu-card p-12 text-center">
-        <p class="text-base font-semibold text-[var(--color-text-main)] mb-1">No Usage Recorded</p>
+      <div class="neu-card p-6 sm:p-8 text-center">
+        <p class="text-sm sm:text-base font-semibold text-[var(--color-text-main)] mb-1">No Usage Recorded</p>
         <p class="text-xs text-[var(--color-text-muted)]">No model calls recorded within the selected date range.</p>
       </div>
     {:else}
       <div class="neu-card p-0 overflow-hidden">
-        <div class="table-scroll">
-          <table class="w-full text-left text-sm">
+        <div class="table-scroll overflow-x-auto">
+          <table class="w-full text-left text-xs">
             <thead class="border-b border-[var(--color-border)] bg-[var(--color-surface)]">
               <tr>
-                <th class="px-4 py-3 text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">
+                <th class="px-2.5 py-2 text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">
                   {capitalize(groupBy)}
                 </th>
-                <th class="px-4 py-3 text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">
+                <th class="px-2.5 py-2 text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">
                   Cost (USD)
                 </th>
-                <th class="px-4 py-3 text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">
+                <th class="px-2.5 py-2 text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">
                   Input Tokens
                 </th>
-                <th class="px-4 py-3 text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">
+                <th class="px-2.5 py-2 text-xs font-bold text-[var(--color-text-muted)] uppercase tracking-wider">
                   Output Tokens
                 </th>
               </tr>
@@ -151,16 +151,16 @@
             <tbody class="divide-y divide-[var(--color-border)]">
               {#each breakdown as row}
                 <tr class="hover:bg-[var(--color-bg)] transition-colors">
-                  <td class="px-4 py-3 font-semibold text-xs text-[var(--color-text-main)] whitespace-nowrap">
+                  <td class="px-2.5 py-2 font-semibold text-xs text-[var(--color-text-main)] whitespace-nowrap">
                     {row.key}
                   </td>
-                  <td class="px-4 py-3 font-mono text-xs tabular-nums text-[var(--color-text-main)]">
+                  <td class="px-2.5 py-2 font-mono text-xs tabular-nums text-[var(--color-text-main)]">
                     ${((row.cost_cents || 0) / 100).toFixed(3)}
                   </td>
-                  <td class="px-4 py-3 font-mono text-xs tabular-nums text-[var(--color-text-muted)]">
+                  <td class="px-2.5 py-2 font-mono text-xs tabular-nums text-[var(--color-text-muted)]">
                     {(row.input_tokens || 0).toLocaleString()}
                   </td>
-                  <td class="px-4 py-3 font-mono text-xs tabular-nums text-[var(--color-text-muted)]">
+                  <td class="px-2.5 py-2 font-mono text-xs tabular-nums text-[var(--color-text-muted)]">
                     {(row.output_tokens || 0).toLocaleString()}
                   </td>
                 </tr>

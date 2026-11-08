@@ -471,23 +471,23 @@
   {/if}
 
   <section class="flex-1 flex flex-col neu-card bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl shadow-sm overflow-hidden min-w-0">
-    <header class="flex flex-wrap items-center gap-2 p-3 border-b border-[var(--color-border)] bg-[var(--color-surface-raised)]">
+    <header class="flex items-center gap-1.5 p-2 overflow-x-auto no-scrollbar whitespace-nowrap border-b border-[var(--color-border)] bg-[var(--color-surface-raised)]">
       <button
         type="button"
         onclick={() => showSidebar = !showSidebar}
-        class="btn-soft min-h-[36px] min-w-[36px] p-1.5 rounded-lg text-[var(--color-text)]"
+        class="btn-soft min-h-[30px] min-w-[30px] p-1 rounded-lg text-[var(--color-text)] shrink-0"
         title="Toggle history sidebar"
       >
         <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
       </button>
 
-      <div class="flex items-center gap-1.5 neu-inset px-2.5 py-1 rounded-xl">
+      <div class="flex items-center gap-1 neu-inset px-2 py-1 rounded-lg text-[11px] shrink-0">
         <label for="provider-select" class="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">Provider</label>
         <select
           id="provider-select"
           value={selectedProvider}
           onchange={handleProviderSelect}
-          class="text-xs font-semibold text-[var(--color-text)] bg-transparent border-0 p-0 focus:ring-0 cursor-pointer"
+          class="text-[11px] font-semibold text-[var(--color-text)] bg-transparent border-0 p-0 focus:ring-0 cursor-pointer"
         >
           {#each providerNames as p}
             <option value={p.id}>{p.name}</option>
@@ -495,13 +495,13 @@
         </select>
       </div>
 
-      <div class="flex items-center gap-1.5 neu-inset px-2.5 py-1 rounded-xl">
+      <div class="flex items-center gap-1 neu-inset px-2 py-1 rounded-lg text-[11px] max-w-[130px] sm:max-w-[180px] truncate shrink-0">
         <label for="model-select" class="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">Model</label>
         <select
           id="model-select"
           value={selectedModel}
           onchange={handleModelSelect}
-          class="text-xs font-semibold text-[var(--color-primary)] bg-transparent border-0 p-0 focus:ring-0 cursor-pointer max-w-[180px] truncate"
+          class="text-[11px] font-semibold text-[var(--color-primary)] bg-transparent border-0 p-0 focus:ring-0 cursor-pointer truncate max-w-[90px] sm:max-w-[130px]"
         >
           {#each currentModelList as m}
             <option value={m.id}>{m.name}</option>
@@ -512,7 +512,7 @@
       <button
         type="button"
         onclick={() => showKeyModal = true}
-        class="btn-soft min-h-[36px] px-2.5 py-1 text-xs font-medium text-[var(--color-text)] flex items-center gap-1.5 rounded-xl"
+        class="btn-soft min-h-[30px] px-2 py-1 text-[11px] font-medium text-[var(--color-text)] flex items-center gap-1 rounded-lg shrink-0"
         title="Manage API Key rotation pool"
       >
         <span class="inline-block w-2 h-2 rounded-full {keyCount > 0 ? 'bg-[var(--color-success)]' : 'bg-[var(--color-warning)]'}"></span>
@@ -525,7 +525,7 @@
         <button
           type="button"
           onclick={handleCancel}
-          class="btn-danger min-h-[36px] px-3 py-1 text-xs rounded-xl flex items-center gap-1.5 font-bold animate-pulse"
+          class="btn-danger min-h-[30px] px-2 py-1 text-[11px] rounded-lg flex items-center gap-1 font-bold animate-pulse shrink-0"
         >
           <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
             <rect x="6" y="6" width="12" height="12" rx="1"/>
@@ -534,31 +534,31 @@
         </button>
       {/if}
 
-      <div class="text-[11px] font-mono text-[var(--color-text-secondary)] hidden sm:block truncate max-w-[160px]">
+      <div class="text-[11px] font-mono text-[var(--color-text-secondary)] hidden sm:block truncate max-w-[160px] shrink-0">
         {sessionId || 'New Session'}
       </div>
     </header>
 
     {#if !sessionId && sessionList.length > 0 && messages.length === 0}
-      <div class="flex-1 flex items-center justify-center p-6">
-        <div class="max-w-md text-center neu-focal p-8">
-          <div class="w-12 h-12 rounded-2xl bg-[var(--color-primary-soft)] text-[var(--color-primary)] flex items-center justify-center mx-auto mb-4 neu-card">
-            <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+      <div class="flex-1 flex items-center justify-center p-2 sm:p-6">
+        <div class="neu-focal p-3.5 sm:p-6 max-w-sm text-center">
+          <div class="w-8 h-8 rounded-xl bg-[var(--color-primary-soft)] text-[var(--color-primary)] flex items-center justify-center mx-auto mb-2 neu-card">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
           </div>
-          <h2 class="text-base font-bold text-[var(--color-text)] mb-1">Ryvos Autonomous Control Plane</h2>
-          <p class="text-xs text-[var(--color-text-secondary)] mb-5">Select a prior chat from history, or ask anything to start a fresh autonomous run.</p>
-          <div class="grid grid-cols-1 gap-2 text-left">
+          <h2 class="text-sm sm:text-base font-bold text-[var(--color-text)] mb-0.5">Ryvos Autonomous Control Plane</h2>
+          <p class="text-[11px] sm:text-xs text-[var(--color-text-secondary)] mb-2.5 leading-snug">Select a prior chat from history, or ask anything to start a fresh autonomous run.</p>
+          <div class="grid grid-cols-1 gap-1.5 text-left">
             <button
               type="button"
               onclick={() => { messageText = "Check runtime health, active tools, and memory invariants."; handleSend(); }}
-              class="p-2.5 rounded-xl border border-[var(--color-border)] text-xs font-medium text-[var(--color-text)] hover:border-[var(--color-primary)] hover:bg-[var(--color-primary-soft)] transition-all text-left"
+              class="p-2 rounded-lg border border-[var(--color-border)] text-[11px] font-medium text-[var(--color-text)] hover:border-[var(--color-primary)] hover:bg-[var(--color-primary-soft)] transition-all leading-tight text-left"
             >
               Check runtime health and memory invariants
             </button>
             <button
               type="button"
               onclick={() => { messageText = "Audit current security policies and list registered MCP tools."; handleSend(); }}
-              class="p-2.5 rounded-xl border border-[var(--color-border)] text-xs font-medium text-[var(--color-text)] hover:border-[var(--color-primary)] hover:bg-[var(--color-primary-soft)] transition-all text-left"
+              class="p-2 rounded-lg border border-[var(--color-border)] text-[11px] font-medium text-[var(--color-text)] hover:border-[var(--color-primary)] hover:bg-[var(--color-primary-soft)] transition-all leading-tight text-left"
             >
               Audit security policies and MCP tools
             </button>
@@ -573,7 +573,7 @@
               <button
                 type="button"
                 onclick={() => { msg.expanded = !msg.expanded; messages = [...messages]; }}
-                class="flex items-center gap-2.5 px-3.5 py-2.5 neu-card rounded-xl text-xs text-[var(--color-text)] w-full text-left transition-colors"
+                class="flex items-center gap-2 px-2.5 py-2 neu-card rounded-xl text-xs text-[var(--color-text)] w-full text-left transition-colors"
               >
                 <span class="p-1 rounded-lg bg-[var(--color-primary-soft)] {msg.status === 'running' ? 'text-[var(--color-warning)]' : 'text-[var(--color-success)]'}">
                   <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
@@ -641,7 +641,7 @@
                 {/if}
               </div>
               <div
-                class="p-4 text-sm leading-relaxed break-words rounded-2xl shadow-sm
+                class="p-2.5 sm:p-4 text-xs sm:text-sm leading-relaxed break-words rounded-2xl shadow-sm
                   {msg.role === 'user'
                     ? 'text-white rounded-tr-none'
                     : (msg.isError
@@ -665,7 +665,7 @@
         {#if streaming && currentStreamText}
           <div class="max-w-[85%] md:max-w-[75%] mr-auto">
             <div class="text-[10px] uppercase tracking-wider text-[var(--color-text-secondary)] font-bold mb-1 px-1">assistant</div>
-            <div class="p-4 neu-card text-[var(--color-text)] text-sm leading-relaxed break-words rounded-2xl rounded-tl-none shadow-sm">
+            <div class="p-2.5 sm:p-4 neu-card text-[var(--color-text)] text-xs sm:text-sm leading-relaxed break-words rounded-2xl rounded-tl-none shadow-sm">
               <div class="markdown-content">
                 {@html renderMarkdown(currentStreamText)}
               </div>
@@ -676,7 +676,7 @@
       </div>
     {/if}
 
-    <footer class="p-3 border-t border-[var(--color-border)] bg-[var(--color-surface-raised)]">
+    <footer class="p-2 sm:p-3 border-t border-[var(--color-border)] bg-[var(--color-surface-raised)]">
       <div class="flex gap-2">
         <label for="chat-prompt-input" class="sr-only">Message to agent</label>
         <textarea
@@ -686,13 +686,13 @@
           disabled={sending}
           placeholder="Message autonomous agent... (Enter to send, Shift+Enter for newline)"
           rows="1"
-          class="neu-inset flex-1 px-4 py-2.5 text-sm resize-none max-h-32 disabled:opacity-50 min-h-[44px]"
+          class="neu-inset flex-1 px-3 py-1.5 text-xs sm:text-sm resize-none max-h-28 disabled:opacity-50 min-h-[38px]"
         ></textarea>
         {#if sending}
           <button
             type="button"
             onclick={handleCancel}
-            class="btn-danger px-4 py-2.5 text-xs font-semibold self-end min-h-[44px]"
+            class="btn-danger px-3.5 py-1.5 text-xs sm:text-sm font-semibold self-end min-h-[38px] rounded-xl"
           >
             Stop
           </button>
@@ -701,7 +701,7 @@
             type="button"
             onclick={handleSend}
             disabled={!messageText.trim()}
-            class="btn-primary px-5 py-2.5 text-sm self-end disabled:opacity-40 min-h-[44px]"
+            class="btn-primary px-3.5 py-1.5 text-xs sm:text-sm font-semibold self-end disabled:opacity-40 min-h-[38px] rounded-xl"
           >
             Send
           </button>

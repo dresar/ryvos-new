@@ -2,5 +2,10 @@ import { mount } from 'svelte';
 import App from './App.svelte';
 import './app.css';
 
-const app = mount(App, { target: document.getElementById('app') });
+const target = document.getElementById('app');
+let app = null;
+if (target) {
+  target.innerHTML = '';
+  app = mount(App, { target });
+}
 export default app;
